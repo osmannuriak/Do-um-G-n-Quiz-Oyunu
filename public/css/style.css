@@ -299,6 +299,20 @@ label { font-weight: 700; font-size: 0.9rem; color: var(--text-dim); display:blo
 .guess-value { font-weight: 800; }
 .guess-distance { flex: 0 0 auto; color: var(--text-dim); font-size: 0.8rem; }
 
+/* ---------- Siralama sorusu ---------- */
+
+.rank-list { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.rank-row {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--card-light); border-radius: 12px; padding: 10px 12px;
+}
+.rank-pos { flex: 0 0 24px; font-weight: 800; color: var(--yellow); text-align: center; }
+.rank-text { flex: 1; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+.rank-arrows { display: flex; gap: 4px; }
+
+.order-list { margin: 10px 0; padding-left: 24px; }
+.order-list li { font-weight: 700; padding: 2px 0; }
+
 /* ---------- Podyum ---------- */
 
 .podium { display: flex; align-items: flex-end; justify-content: center; gap: 10px; margin: 20px 0; }

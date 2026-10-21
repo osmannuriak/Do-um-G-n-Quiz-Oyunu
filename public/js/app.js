@@ -21,6 +21,10 @@
   let joinError = '';
   const TIME_OPTIONS = [10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60];
   let lastResultSoundKey = null;
+  // Siralama sorularinda, henuz sunucuya gonderilmemis yerel calisma sirasi
+  // (orijinal secenek indekslerinin bir permutasyonu) ve hangi soru/role'e ait oldugunu tutar.
+  let rankingWorkingOrder = null;
+  let rankingWorkingKey = null;
 
   // ---------- yardimcilar ----------
 
@@ -229,6 +233,62 @@
         <div class="guess-rank">#${i + 1}</div>
         <div class="guess-name">${esc(g.name)}</div>
         <div class="guess-value">${g.value}${unit ? ' ' + esc(unit) : ''}</div>
+        <div class="guess-distance">fark: ${g.distance}</div>
+      </div>`).join('')}</div>`;
+  }
+
+  // Siralama sorularinda, verilen (code-questionIndex-role) anahtarina ait yerel
+  // calisma sirasini dondurur; anahtar degismisse (yeni soru) sirayi 0..n-1'e sifirlar.
+  function getRankingOrder(key, optionCount) {
+    if (rankingWorkingKey !== key) {
+      rankingWorkingKey = key;
+      rankingWorkingOrder = Array.from({ length: optionCount }, (_, i) => i);
+    }
+    return rankingWorkingOrder;
+  }
+
+  function renderRankingArranger(options, order, { disabled = false } = {}) {
+    return `<div class="rank-list">${order.map((origIdx, pos) => `
+      <div class="rank-row">
+        <div class="rank-pos">${pos + 1}</div>
+        <div class="rank-text"><span class="shape">${optionShape(origIdx)}</span>${esc(options[origIdx])}</div>
+        <div class="rank-arrows">
+          <button type="button" class="small-btn btn-ghost rank-up" data-pos="${pos}" ${disabled || pos === 0 ? 'disabled' : ''}>▲</button>
+          <button type="button" class="small-btn btn-ghost rank-down" data-pos="${pos}" ${disabled || pos === order.length - 1 ? 'disabled' : ''}>▼</button>
+        </div>
+      </div>`).join('')}</div>`;
+  }
+
+  function bindRankingArranger(containerId, onReorder) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    el.addEventListener('click', (e) => {
+      const upBtn = e.target.closest('.rank-up');
+      const downBtn = e.target.closest('.rank-down');
+      const btn = upBtn || downBtn;
+      if (!btn || btn.disabled || !rankingWorkingOrder) return;
+      const pos = parseInt(btn.dataset.pos, 10);
+      const swapWith = upBtn ? pos - 1 : pos + 1;
+      if (swapWith < 0 || swapWith >= rankingWorkingOrder.length) return;
+      const tmp = rankingWorkingOrder[pos];
+      rankingWorkingOrder[pos] = rankingWorkingOrder[swapWith];
+      rankingWorkingOrder[swapWith] = tmp;
+      onReorder();
+    });
+  }
+
+  function renderOrderList(options, order) {
+    if (!order) return '';
+    return `<ol class="order-list">${order.map((origIdx) => `<li>${esc(options[origIdx])}</li>`).join('')}</ol>`;
+  }
+
+  function renderRankingGuessesList(guesses, options) {
+    if (!guesses || !guesses.length) return '<p class="muted center">Kimse sıralama yapmadı.</p>';
+    return `<div class="guess-list">${guesses.map((g, i) => `
+      <div class="guess-row ${i === 0 ? 'guess-best' : ''}">
+        <div class="guess-rank">#${i + 1}</div>
+        <div class="guess-name">${esc(g.name)}</div>
+        <div class="guess-value">${g.order.map((oi) => esc(options[oi])).join(' → ')}</div>
         <div class="guess-distance">fark: ${g.distance}</div>
       </div>`).join('')}</div>`;
   }
@@ -634,10 +694,11 @@
 
   function renderQuestionEditor(q, qi, total) {
     const isNumeric = q.type === 'numeric';
+    const isRanking = q.type === 'ranking';
     const opts = (q.options || []).map((opt, oi) => `
       <div class="opt-input-row">
         <span>${optionShape(oi)}</span>
-        <input type="text" data-field="qopt" data-qidx="${qi}" data-oidx="${oi}" maxlength="80" placeholder="Seçenek ${oi + 1}" value="${esc(opt)}">
+        <input type="text" data-field="qopt" data-qidx="${qi}" data-oidx="${oi}" maxlength="80" placeholder="${isRanking ? 'Öğe' : 'Seçenek'} ${oi + 1}" value="${esc(opt)}">
         ${q.options.length > 2 ? `<button type="button" class="small-btn btn-danger remove-opt" data-qidx="${qi}" data-oidx="${oi}">✕</button>` : ''}
       </div>`).join('');
     return `
@@ -654,8 +715,9 @@
         <div style="margin-top:8px">
           <label>Soru Tipi</label>
           <select data-field="qtype" data-qidx="${qi}">
-            <option value="choice" ${!isNumeric ? 'selected' : ''}>Çoktan Seçmeli</option>
+            <option value="choice" ${(!isNumeric && !isRanking) ? 'selected' : ''}>Çoktan Seçmeli</option>
             <option value="numeric" ${isNumeric ? 'selected' : ''}>🔢 Sayı Tahmini</option>
+            <option value="ranking" ${isRanking ? 'selected' : ''}>🔀 Sıralama</option>
           </select>
         </div>
         ${isNumeric ? `
@@ -664,9 +726,10 @@
           <input type="text" data-field="qunit" data-qidx="${qi}" maxlength="16" placeholder="Örn: yaş, kg, km" value="${esc(q.unit || '')}">
           <p class="muted" style="margin-top:4px">Oyuncular bir sayı girecek; doğum günü çocuğu oyun sırasında gerçek sayıyı kendisi yazacak. En yakın tahmin en çok puanı alır.</p>
         </div>` : `
-        <label style="margin-top:8px">Seçenekler (2-6)</label>
+        <label style="margin-top:8px">${isRanking ? 'Sıralanacak Öğeler (2-6)' : 'Seçenekler (2-6)'}</label>
+        ${isRanking ? '<p class="muted" style="margin-top:2px">Doğum günü çocuğu oyun sırasında bu öğeleri gerçek/doğru sıraya kendisi dizecek.</p>' : ''}
         ${opts}
-        ${q.options.length < 6 ? `<button type="button" class="small-btn btn-secondary add-opt" data-qidx="${qi}">+ Seçenek</button>` : ''}
+        ${q.options.length < 6 ? `<button type="button" class="small-btn btn-secondary add-opt" data-qidx="${qi}">+ ${isRanking ? 'Öğe' : 'Seçenek'}</button>` : ''}
         `}
         <div style="margin-top:10px">
           <label>Cevap Süresi</label>
@@ -696,7 +759,8 @@
       syncEditorFromDOM();
       const qi = parseInt(e.currentTarget.dataset.qidx, 10);
       const q = editorQuiz.questions[qi];
-      q.type = e.currentTarget.value === 'numeric' ? 'numeric' : 'choice';
+      const val = e.currentTarget.value;
+      q.type = val === 'numeric' ? 'numeric' : (val === 'ranking' ? 'ranking' : 'choice');
       if (q.type === 'numeric') {
         q.options = [];
       } else if (!q.options || q.options.length < 2) {
@@ -790,7 +854,7 @@
       wrongPhotoUrl: editorQuiz.wrongPhotoUrl || '',
       questions: editorQuiz.questions.map((q) => ({
         text: q.text.trim(),
-        type: q.type === 'numeric' ? 'numeric' : 'choice',
+        type: q.type === 'numeric' ? 'numeric' : (q.type === 'ranking' ? 'ranking' : 'choice'),
         options: q.type === 'numeric' ? [] : q.options.filter((o) => o.trim()),
         unit: q.unit || '',
         timeLimit: q.timeLimit,
@@ -871,7 +935,9 @@
           ${s.question.imageUrl ? `<img class="question-image" src="${esc(s.question.imageUrl)}" alt="">` : ''}
           ${s.question.type === 'numeric'
             ? `<p class="muted center">🔢 Sayı tahmini sorusu${s.question.unit ? ' (' + esc(s.question.unit) + ')' : ''} — oyuncular bir sayı yazıyor.</p>`
-            : `<div class="options-grid">${renderOptions(s.question.options)}</div>`}
+            : s.question.type === 'ranking'
+              ? `<p class="muted center">🔀 Sıralama sorusu — oyuncular öğeleri sıralıyor.</p><div class="options-grid">${renderOptions(s.question.options)}</div>`
+              : `<div class="options-grid">${renderOptions(s.question.options)}</div>`}
         </div>
         <div class="card">
           <p class="muted">Cevaplayan: ${s.answeredCount} / ${s.playerCount}</p>
@@ -881,6 +947,7 @@
       `;
     } else if (s.status === 'question_results') {
       const isNumeric = s.question.type === 'numeric';
+      const isRanking = s.question.type === 'ranking';
       body = `
         <div class="question-card">
           <span class="badge">Soru ${s.questionIndex + 1}/${s.totalQuestions} — Sonuç</span>${doubleBadge(s.question)}
@@ -888,6 +955,10 @@
           ${isNumeric ? `
             <p class="muted center">Gerçek sayı: <strong>${s.question.correctValue}${s.question.unit ? ' ' + esc(s.question.unit) : ''}</strong></p>
             ${renderGuessesList(s.question.guesses, s.question.unit)}
+          ` : isRanking ? `
+            <p class="muted center">Gerçek sıra:</p>
+            ${renderOrderList(s.question.options, s.question.correctOrder)}
+            ${renderRankingGuessesList(s.question.guesses, s.question.options)}
           ` : `
             <div class="options-grid">${renderOptions(s.question.options, { correctIndex: s.question.correctIndex })}</div>
             ${renderDistribution(s.question.options, s.question.distribution, s.question.correctIndex)}
@@ -948,6 +1019,8 @@
       `;
     } else if (s.status === 'birthday_turn' && s.question) {
       const isNumeric = s.question.type === 'numeric';
+      const isRanking = s.question.type === 'ranking';
+      const rankOrder = isRanking ? getRankingOrder(s.code + '-' + s.questionIndex + '-bday', s.question.options.length) : null;
       body = `
         <div class="question-card">
           <span class="badge">Soru ${s.questionIndex + 1}/${s.totalQuestions} — sadece sen görüyorsun 🤫</span>${doubleBadge(s.question)}
@@ -956,6 +1029,10 @@
           ${isNumeric ? `
             <p class="muted">Gerçek/doğru sayıyı yaz. Süre sınırsız.</p>
             ${numericInputBox({ inputId: 'bday-numeric-input', btnId: 'bday-numeric-submit', unit: s.question.unit, placeholder: 'Gerçek sayı', btnLabel: 'Cevabımı Kilitle 🔒' })}
+          ` : isRanking ? `
+            <p class="muted">Öğeleri gerçek/doğru sıraya diz (▲▼ ile). Süre sınırsız.</p>
+            <div id="bday-ranking">${renderRankingArranger(s.question.options, rankOrder)}</div>
+            <button type="button" class="btn-primary btn-block" id="bday-ranking-submit" style="margin-top:10px">Sıralamamı Kilitle 🔒</button>
           ` : `
             <p class="muted">Senin için doğru olan şıkkı seç. Süre sınırsız.</p>
             <div class="options-grid" id="bday-options">${renderOptions(s.question.options)}</div>
@@ -981,7 +1058,8 @@
       `;
     } else if (s.status === 'question_results' && s.question) {
       const isNumeric = s.question.type === 'numeric';
-      const best = isNumeric && s.question.guesses && s.question.guesses.length ? s.question.guesses[0] : null;
+      const isRanking = s.question.type === 'ranking';
+      const best = (isNumeric || isRanking) && s.question.guesses && s.question.guesses.length ? s.question.guesses[0] : null;
       body = `
         <div class="question-card">
           <span class="badge">Soru ${s.questionIndex + 1}/${s.totalQuestions} — Sonuç</span>${doubleBadge(s.question)}
@@ -989,6 +1067,10 @@
           ${isNumeric ? `
             <p class="muted center">Yazdığın sayı: <strong>${s.question.correctValue}${s.question.unit ? ' ' + esc(s.question.unit) : ''}</strong></p>
             ${renderGuessesList(s.question.guesses, s.question.unit)}
+          ` : isRanking ? `
+            <p class="muted center">Dizdiğin gerçek sıra:</p>
+            ${renderOrderList(s.question.options, s.question.correctOrder)}
+            ${renderRankingGuessesList(s.question.guesses, s.question.options)}
           ` : `
             <div class="options-grid">${renderOptions(s.question.options, { selected: s.myChoice, correctIndex: s.question.correctIndex })}</div>
             ${renderDistribution(s.question.options, s.question.distribution, s.question.correctIndex)}
@@ -997,7 +1079,9 @@
         <div class="card center">
           ${isNumeric
             ? (best ? `<p>🏅 En yakın tahmin: <strong>${esc(best.name)}</strong> (fark: ${best.distance})</p>` : '<p class="muted">Kimse tahmin yapmadı.</p>')
-            : `<p>🎯 <strong>${s.correctGuessers}</strong> kişi senin seçtiğin cevabı buldu!</p>`}
+            : isRanking
+              ? (best ? `<p>🏅 En yakın sıralama: <strong>${esc(best.name)}</strong> (fark: ${best.distance})</p>` : '<p class="muted">Kimse sıralama yapmadı.</p>')
+              : `<p>🎯 <strong>${s.correctGuessers}</strong> kişi senin seçtiğin cevabı buldu!</p>`}
           <p class="muted">Sıradaki soruya yönetici geçecek.</p>
         </div>
         <h3>🏆 İlk 5</h3>
@@ -1032,6 +1116,11 @@
       if (raw === '' || !Number.isFinite(Number(raw))) return showToast('Lütfen geçerli bir sayı yaz.');
       socket.emit('birthday:lockNumeric', { value: Number(raw) });
     });
+    bindRankingArranger('bday-ranking', renderBirthdayRoom);
+    on('bday-ranking-submit', 'click', () => {
+      if (!rankingWorkingOrder) return;
+      socket.emit('birthday:lockRanking', { order: rankingWorkingOrder.slice() });
+    });
   }
 
   // ---------- OYUNCU: ODA EKRANI ----------
@@ -1059,6 +1148,8 @@
       `;
     } else if (s.status === 'question_open' && s.question) {
       const isNumeric = s.question.type === 'numeric';
+      const isRanking = s.question.type === 'ranking';
+      const rankOrder = isRanking ? getRankingOrder(s.code + '-' + s.questionIndex + '-player', s.question.options.length) : null;
       body = `
         <div class="question-card">
           <div class="row">
@@ -1072,22 +1163,29 @@
             ? (s.hasAnswered
                 ? `<p class="muted center">Tahminin: <strong>${s.myValue}${s.question.unit ? ' ' + esc(s.question.unit) : ''}</strong></p>`
                 : numericInputBox({ inputId: 'player-numeric-input', btnId: 'player-numeric-submit', unit: s.question.unit, placeholder: 'Tahminin', btnLabel: 'Gönder ✅' }))
-            : `<div class="options-grid" id="player-options">${renderOptions(s.question.options, { selected: s.myChoice, disabled: s.hasAnswered })}</div>`}
+            : isRanking
+              ? `<div id="player-ranking">${renderRankingArranger(s.question.options, s.hasAnswered ? (s.myOrder || rankOrder) : rankOrder, { disabled: s.hasAnswered })}</div>
+                 ${!s.hasAnswered ? '<button type="button" class="btn-primary btn-block" id="player-ranking-submit" style="margin-top:10px">Sıralamamı Gönder ✅</button>' : ''}`
+              : `<div class="options-grid" id="player-options">${renderOptions(s.question.options, { selected: s.myChoice, disabled: s.hasAnswered })}</div>`}
           ${s.hasAnswered ? '<p class="muted center" style="margin-top:10px">Cevabın kilitlendi, sonuçlar bekleniyor...</p>' : ''}
         </div>
       `;
     } else if (s.status === 'question_results' && s.question) {
       const isNumeric = s.question.type === 'numeric';
-      const r = s.myResult || { correct: false, points: 0, choiceIndex: null, rank: null, value: null, distance: null };
+      const isRanking = s.question.type === 'ranking';
+      const r = s.myResult || { correct: false, points: 0, choiceIndex: null, rank: null, value: null, distance: null, order: null };
       const resultSoundKey = s.code + '-' + s.questionIndex;
-      const won = isNumeric ? r.rank === 1 : r.correct;
+      const won = (isNumeric || isRanking) ? r.rank === 1 : r.correct;
       if (lastResultSoundKey !== resultSoundKey) {
         lastResultSoundKey = resultSoundKey;
-        if (won) playFanfare(); else if (isNumeric ? r.value !== null : r.choiceIndex !== null) playWrongBuzz();
+        const answered = isNumeric ? r.value !== null : isRanking ? r.order !== null : r.choiceIndex !== null;
+        if (won) playFanfare(); else if (answered) playWrongBuzz();
       }
       const bannerText = isNumeric
         ? (r.value === null ? '⌛ Cevap vermedin' : (won ? '🎉 En yakın tahmin sendeydi!' : `📏 Fark: ${r.distance}${s.question.unit ? ' ' + esc(s.question.unit) : ''} (sıran: ${r.rank})`))
-        : (r.correct ? '🎉 Doğru bildin!' : (r.choiceIndex === null ? '⌛ Cevap vermedin' : '❌ Yanlış cevap'));
+        : isRanking
+          ? (r.order === null ? '⌛ Cevap vermedin' : (won ? '🎉 En yakın sıralama sendeydi!' : `📏 Fark: ${r.distance} (sıran: ${r.rank})`))
+          : (r.correct ? '🎉 Doğru bildin!' : (r.choiceIndex === null ? '⌛ Cevap vermedin' : '❌ Yanlış cevap'));
       body = `
         <div class="result-banner ${won ? 'correct' : 'wrong'}">
           ${bannerText}
@@ -1098,6 +1196,10 @@
           ${isNumeric ? `
             <p class="muted center">Gerçek sayı: <strong>${s.question.correctValue}${s.question.unit ? ' ' + esc(s.question.unit) : ''}</strong></p>
             ${renderGuessesList(s.question.guesses, s.question.unit)}
+          ` : isRanking ? `
+            <p class="muted center">Gerçek sıra:</p>
+            ${renderOrderList(s.question.options, s.question.correctOrder)}
+            ${renderRankingGuessesList(s.question.guesses, s.question.options)}
           ` : `
             <div class="options-grid">${renderOptions(s.question.options, { selected: r.choiceIndex, correctIndex: s.question.correctIndex })}</div>
             ${renderDistribution(s.question.options, s.question.distribution, s.question.correctIndex)}
@@ -1133,6 +1235,11 @@
       const raw = input ? input.value : '';
       if (raw === '' || !Number.isFinite(Number(raw))) return showToast('Lütfen geçerli bir sayı yaz.');
       socket.emit('player:answerNumeric', { value: Number(raw) });
+    });
+    if (!s.hasAnswered) bindRankingArranger('player-ranking', renderPlayerRoom);
+    on('player-ranking-submit', 'click', () => {
+      if (!rankingWorkingOrder) return;
+      socket.emit('player:answerRanking', { order: rankingWorkingOrder.slice() });
     });
   }
 
