@@ -104,3 +104,4 @@ data/quizzes.json       → kaydedilen quiz'ler (otomatik oluşur)
   biri çalamaz.
 - Sayfa yenilenince oyuncu/doğum günü sahibi/yönetici kaldığı yerden devam
   eder (localStorage ile kimlik hatırlanır).
+
