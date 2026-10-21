@@ -20,6 +20,7 @@
   let confettiFired = {};
   let joinError = '';
   const TIME_OPTIONS = [10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60];
+  let lastResultSoundKey = null;
 
   // ---------- yardimcilar ----------
 
@@ -68,6 +69,46 @@
   function doubleBadge(q) {
     return q && q.doublePoints ? ' <span class="badge" style="background:var(--pink)">⭐ 2x PUAN</span>' : '';
   }
+
+  // ---------- ses efektleri (Web Audio API ile aninda uretilir, dosya gerekmez) ----------
+
+  let audioCtx = null;
+  function ensureAudio() {
+    if (!audioCtx) {
+      try {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (Ctx) audioCtx = new Ctx();
+      } catch (e) { /* ses desteklenmiyorsa sessizce vazgec */ }
+    }
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+  }
+  // Tarayicilar sesi ancak bir kullanici etkilesiminden sonra calmaya izin verir;
+  // sayfadaki ilk tiklamada ses motorunu hazirla/uyandir.
+  document.addEventListener('click', ensureAudio);
+
+  function playTone(freq, startOffset, duration, type, volume) {
+    if (!audioCtx) return;
+    const t0 = audioCtx.currentTime + startOffset;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type || 'sine';
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0, t0);
+    gain.gain.linearRampToValueAtTime(volume || 0.18, t0 + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(t0);
+    osc.stop(t0 + duration + 0.02);
+  }
+
+  function playTick() { playTone(1000, 0, 0.08, 'square', 0.1); }
+  function playFanfare() {
+    playTone(523.25, 0, 0.14, 'triangle', 0.2);
+    playTone(659.25, 0.12, 0.14, 'triangle', 0.2);
+    playTone(783.99, 0.24, 0.26, 'triangle', 0.22);
+  }
+  function playWrongBuzz() { playTone(180, 0, 0.25, 'sawtooth', 0.14); }
 
   // Secilen gorsel dosyasini tarayicida kucultup (max 900px genislik, JPEG %72
   // kalite) base64 data URI'ya cevirir. Boylece hem yukleme hizli olur hem de
@@ -207,6 +248,7 @@
   }
 
   // Soru sayaci: 200ms'de bir, acik bir soru varsa timer gostergesini gunceller.
+  let lastTickKey = null;
   setInterval(() => {
     const ring = document.getElementById('timer-ring');
     if (!ring || !latestSync || !latestSync.question || !latestSync.question.openAt) return;
@@ -215,7 +257,17 @@
     const pct = Math.max(0, Math.min(100, (remain / duration) * 100));
     ring.style.setProperty('--pct', pct + '%');
     const txt = document.getElementById('timer-text');
-    if (txt) txt.textContent = Math.ceil(remain);
+    const remainInt = Math.ceil(remain);
+    if (txt) txt.textContent = remainInt;
+
+    // Sadece oyuncu, henuz cevap vermemisken ve sure devam ederken tik sesi calsin.
+    if (latestSync.role === 'player' && !latestSync.hasAnswered && remainInt > 0) {
+      const key = openAt + '-' + remainInt;
+      if (key !== lastTickKey) {
+        lastTickKey = key;
+        playTick();
+      }
+    }
   }, 200);
 
   // ---------- socket olaylari ----------
@@ -904,6 +956,11 @@
       `;
     } else if (s.status === 'question_results' && s.question) {
       const r = s.myResult || { correct: false, points: 0, choiceIndex: null };
+      const resultSoundKey = s.code + '-' + s.questionIndex;
+      if (lastResultSoundKey !== resultSoundKey) {
+        lastResultSoundKey = resultSoundKey;
+        if (r.correct) playFanfare(); else if (r.choiceIndex !== null) playWrongBuzz();
+      }
       body = `
         <div class="result-banner ${r.correct ? 'correct' : 'wrong'}">
           ${r.correct ? '🎉 Doğru bildin!' : (r.choiceIndex === null ? '⌛ Cevap vermedin' : '❌ Yanlış cevap')}
