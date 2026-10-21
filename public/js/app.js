@@ -214,6 +214,25 @@
     }).join('')}</div>`;
   }
 
+  function numericInputBox({ inputId, btnId, unit, placeholder, btnLabel, disabled }) {
+    return `<div class="numeric-input-box">
+      <input type="number" step="any" inputmode="decimal" id="${inputId}" placeholder="${esc(placeholder || 'Bir sayı yaz')}" ${disabled ? 'disabled' : ''}>
+      ${unit ? `<span class="numeric-unit">${esc(unit)}</span>` : ''}
+      <button type="button" class="btn-primary" id="${btnId}" ${disabled ? 'disabled' : ''}>${btnLabel}</button>
+    </div>`;
+  }
+
+  function renderGuessesList(guesses, unit) {
+    if (!guesses || !guesses.length) return '<p class="muted center">Kimse tahmin yapmadı.</p>';
+    return `<div class="guess-list">${guesses.map((g, i) => `
+      <div class="guess-row ${i === 0 ? 'guess-best' : ''}">
+        <div class="guess-rank">#${i + 1}</div>
+        <div class="guess-name">${esc(g.name)}</div>
+        <div class="guess-value">${g.value}${unit ? ' ' + esc(unit) : ''}</div>
+        <div class="guess-distance">fark: ${g.distance}</div>
+      </div>`).join('')}</div>`;
+  }
+
   function renderLeaderboard(list) {
     if (!list || !list.length) return '<p class="muted center">Henüz kimse puan almadı.</p>';
     return `<div class="leaderboard">${list.map((p) => {
@@ -527,7 +546,7 @@
         title: '',
         correctPhotoUrl: '',
         wrongPhotoUrl: '',
-        questions: [{ text: '', options: ['', ''], timeLimit: 20, imageUrl: '', doublePoints: false }],
+        questions: [{ text: '', type: 'choice', options: ['', ''], unit: '', timeLimit: 20, imageUrl: '', doublePoints: false }],
       };
       view = 'adminQuizEditor';
       render();
@@ -573,7 +592,9 @@
       if (timeEl) q.timeLimit = parseInt(timeEl.value, 10);
       const doubleEl = document.querySelector(`[data-field="qdouble"][data-qidx="${qi}"]`);
       if (doubleEl) q.doublePoints = doubleEl.checked;
-      q.options.forEach((opt, oi) => {
+      const unitEl = document.querySelector(`[data-field="qunit"][data-qidx="${qi}"]`);
+      if (unitEl) q.unit = unitEl.value;
+      (q.options || []).forEach((opt, oi) => {
         const optEl = document.querySelector(`[data-field="qopt"][data-qidx="${qi}"][data-oidx="${oi}"]`);
         if (optEl) q.options[oi] = optEl.value;
       });
@@ -612,7 +633,8 @@
   }
 
   function renderQuestionEditor(q, qi, total) {
-    const opts = q.options.map((opt, oi) => `
+    const isNumeric = q.type === 'numeric';
+    const opts = (q.options || []).map((opt, oi) => `
       <div class="opt-input-row">
         <span>${optionShape(oi)}</span>
         <input type="text" data-field="qopt" data-qidx="${qi}" data-oidx="${oi}" maxlength="80" placeholder="Seçenek ${oi + 1}" value="${esc(opt)}">
@@ -629,9 +651,23 @@
         </div>
         <label>Soru Metni</label>
         <textarea data-field="qtext" data-qidx="${qi}" rows="2" maxlength="200" placeholder="Örn: En sevdiğim renk hangisidir?">${esc(q.text)}</textarea>
+        <div style="margin-top:8px">
+          <label>Soru Tipi</label>
+          <select data-field="qtype" data-qidx="${qi}">
+            <option value="choice" ${!isNumeric ? 'selected' : ''}>Çoktan Seçmeli</option>
+            <option value="numeric" ${isNumeric ? 'selected' : ''}>🔢 Sayı Tahmini</option>
+          </select>
+        </div>
+        ${isNumeric ? `
+        <div style="margin-top:8px">
+          <label>Birim (isteğe bağlı)</label>
+          <input type="text" data-field="qunit" data-qidx="${qi}" maxlength="16" placeholder="Örn: yaş, kg, km" value="${esc(q.unit || '')}">
+          <p class="muted" style="margin-top:4px">Oyuncular bir sayı girecek; doğum günü çocuğu oyun sırasında gerçek sayıyı kendisi yazacak. En yakın tahmin en çok puanı alır.</p>
+        </div>` : `
         <label style="margin-top:8px">Seçenekler (2-6)</label>
         ${opts}
         ${q.options.length < 6 ? `<button type="button" class="small-btn btn-secondary add-opt" data-qidx="${qi}">+ Seçenek</button>` : ''}
+        `}
         <div style="margin-top:10px">
           <label>Cevap Süresi</label>
           <select data-field="qtime" data-qidx="${qi}">
@@ -652,10 +688,22 @@
     on('editor-back', 'click', goAdminQuizList);
     on('add-question', 'click', () => {
       syncEditorFromDOM();
-      editorQuiz.questions.push({ text: '', options: ['', ''], timeLimit: 20, imageUrl: '', doublePoints: false });
+      editorQuiz.questions.push({ text: '', type: 'choice', options: ['', ''], unit: '', timeLimit: 20, imageUrl: '', doublePoints: false });
       renderAdminQuizEditor();
     });
     on('save-quiz', 'click', saveQuiz);
+    onAll('[data-field="qtype"]', 'change', (e) => {
+      syncEditorFromDOM();
+      const qi = parseInt(e.currentTarget.dataset.qidx, 10);
+      const q = editorQuiz.questions[qi];
+      q.type = e.currentTarget.value === 'numeric' ? 'numeric' : 'choice';
+      if (q.type === 'numeric') {
+        q.options = [];
+      } else if (!q.options || q.options.length < 2) {
+        q.options = ['', ''];
+      }
+      renderAdminQuizEditor();
+    });
     onAll('.remove-question', 'click', (e) => {
       syncEditorFromDOM();
       const qi = parseInt(e.currentTarget.dataset.qidx, 10);
@@ -732,14 +780,22 @@
     if (!editorQuiz.title.trim()) return showToast('Quiz başlığı boş olamaz.');
     for (const q of editorQuiz.questions) {
       if (!q.text.trim()) return showToast('Tüm sorularda metin olmalı.');
-      if (q.options.filter((o) => o.trim()).length < 2) return showToast('Her soruda en az 2 dolu seçenek olmalı.');
+      if (q.type !== 'numeric' && q.options.filter((o) => o.trim()).length < 2) {
+        return showToast('Her soruda en az 2 dolu seçenek olmalı.');
+      }
     }
     const payload = {
       title: editorQuiz.title.trim(),
       correctPhotoUrl: editorQuiz.correctPhotoUrl || '',
       wrongPhotoUrl: editorQuiz.wrongPhotoUrl || '',
       questions: editorQuiz.questions.map((q) => ({
-        text: q.text.trim(), options: q.options.filter((o) => o.trim()), timeLimit: q.timeLimit, imageUrl: q.imageUrl, doublePoints: !!q.doublePoints,
+        text: q.text.trim(),
+        type: q.type === 'numeric' ? 'numeric' : 'choice',
+        options: q.type === 'numeric' ? [] : q.options.filter((o) => o.trim()),
+        unit: q.unit || '',
+        timeLimit: q.timeLimit,
+        imageUrl: q.imageUrl,
+        doublePoints: !!q.doublePoints,
       })),
     };
     const url = editorQuiz.id ? '/api/quizzes/' + editorQuiz.id : '/api/quizzes';
@@ -813,7 +869,9 @@
           </div>
           <p class="question-text">${esc(s.question.text)}</p>
           ${s.question.imageUrl ? `<img class="question-image" src="${esc(s.question.imageUrl)}" alt="">` : ''}
-          <div class="options-grid">${renderOptions(s.question.options)}</div>
+          ${s.question.type === 'numeric'
+            ? `<p class="muted center">🔢 Sayı tahmini sorusu${s.question.unit ? ' (' + esc(s.question.unit) + ')' : ''} — oyuncular bir sayı yazıyor.</p>`
+            : `<div class="options-grid">${renderOptions(s.question.options)}</div>`}
         </div>
         <div class="card">
           <p class="muted">Cevaplayan: ${s.answeredCount} / ${s.playerCount}</p>
@@ -822,12 +880,18 @@
         ${adminEndButton(s)}
       `;
     } else if (s.status === 'question_results') {
+      const isNumeric = s.question.type === 'numeric';
       body = `
         <div class="question-card">
           <span class="badge">Soru ${s.questionIndex + 1}/${s.totalQuestions} — Sonuç</span>${doubleBadge(s.question)}
           <p class="question-text" style="margin-top:10px">${esc(s.question.text)}</p>
-          <div class="options-grid">${renderOptions(s.question.options, { correctIndex: s.question.correctIndex })}</div>
-          ${renderDistribution(s.question.options, s.question.distribution, s.question.correctIndex)}
+          ${isNumeric ? `
+            <p class="muted center">Gerçek sayı: <strong>${s.question.correctValue}${s.question.unit ? ' ' + esc(s.question.unit) : ''}</strong></p>
+            ${renderGuessesList(s.question.guesses, s.question.unit)}
+          ` : `
+            <div class="options-grid">${renderOptions(s.question.options, { correctIndex: s.question.correctIndex })}</div>
+            ${renderDistribution(s.question.options, s.question.distribution, s.question.correctIndex)}
+          `}
         </div>
         <h3>🏆 Sıralama</h3>
         ${renderLeaderboard(s.leaderboard)}
@@ -883,20 +947,26 @@
         </div>
       `;
     } else if (s.status === 'birthday_turn' && s.question) {
+      const isNumeric = s.question.type === 'numeric';
       body = `
         <div class="question-card">
           <span class="badge">Soru ${s.questionIndex + 1}/${s.totalQuestions} — sadece sen görüyorsun 🤫</span>${doubleBadge(s.question)}
           <p class="question-text" style="margin-top:10px">${esc(s.question.text)}</p>
           ${s.question.imageUrl ? `<img class="question-image" src="${esc(s.question.imageUrl)}" alt="">` : ''}
-          <p class="muted">Senin için doğru olan şıkkı seç. Süre sınırsız.</p>
-          <div class="options-grid" id="bday-options">${renderOptions(s.question.options)}</div>
-          <div class="custom-answer-box">
-            <button type="button" class="custom-answer-toggle" id="custom-answer-toggle">Doğru cevap şıklarda yok, kendim yazayım ✏️</button>
-            <div class="custom-answer-form" id="custom-answer-form" style="display:none">
-              <input type="text" id="custom-answer-text" maxlength="80" placeholder="Doğru cevabı yaz">
-              <button type="button" class="btn-primary" id="custom-answer-submit">Ekle ve Cevabımı Kilitle 🔒</button>
+          ${isNumeric ? `
+            <p class="muted">Gerçek/doğru sayıyı yaz. Süre sınırsız.</p>
+            ${numericInputBox({ inputId: 'bday-numeric-input', btnId: 'bday-numeric-submit', unit: s.question.unit, placeholder: 'Gerçek sayı', btnLabel: 'Cevabımı Kilitle 🔒' })}
+          ` : `
+            <p class="muted">Senin için doğru olan şıkkı seç. Süre sınırsız.</p>
+            <div class="options-grid" id="bday-options">${renderOptions(s.question.options)}</div>
+            <div class="custom-answer-box">
+              <button type="button" class="custom-answer-toggle" id="custom-answer-toggle">Doğru cevap şıklarda yok, kendim yazayım ✏️</button>
+              <div class="custom-answer-form" id="custom-answer-form" style="display:none">
+                <input type="text" id="custom-answer-text" maxlength="80" placeholder="Doğru cevabı yaz">
+                <button type="button" class="btn-primary" id="custom-answer-submit">Ekle ve Cevabımı Kilitle 🔒</button>
+              </div>
             </div>
-          </div>
+          `}
         </div>
       `;
     } else if (s.status === 'question_open' && s.question) {
@@ -910,15 +980,24 @@
         </div>
       `;
     } else if (s.status === 'question_results' && s.question) {
+      const isNumeric = s.question.type === 'numeric';
+      const best = isNumeric && s.question.guesses && s.question.guesses.length ? s.question.guesses[0] : null;
       body = `
         <div class="question-card">
           <span class="badge">Soru ${s.questionIndex + 1}/${s.totalQuestions} — Sonuç</span>${doubleBadge(s.question)}
           <p class="question-text" style="margin-top:10px">${esc(s.question.text)}</p>
-          <div class="options-grid">${renderOptions(s.question.options, { selected: s.myChoice, correctIndex: s.question.correctIndex })}</div>
-          ${renderDistribution(s.question.options, s.question.distribution, s.question.correctIndex)}
+          ${isNumeric ? `
+            <p class="muted center">Yazdığın sayı: <strong>${s.question.correctValue}${s.question.unit ? ' ' + esc(s.question.unit) : ''}</strong></p>
+            ${renderGuessesList(s.question.guesses, s.question.unit)}
+          ` : `
+            <div class="options-grid">${renderOptions(s.question.options, { selected: s.myChoice, correctIndex: s.question.correctIndex })}</div>
+            ${renderDistribution(s.question.options, s.question.distribution, s.question.correctIndex)}
+          `}
         </div>
         <div class="card center">
-          <p>🎯 <strong>${s.correctGuessers}</strong> kişi senin seçtiğin cevabı buldu!</p>
+          ${isNumeric
+            ? (best ? `<p>🏅 En yakın tahmin: <strong>${esc(best.name)}</strong> (fark: ${best.distance})</p>` : '<p class="muted">Kimse tahmin yapmadı.</p>')
+            : `<p>🎯 <strong>${s.correctGuessers}</strong> kişi senin seçtiğin cevabı buldu!</p>`}
           <p class="muted">Sıradaki soruya yönetici geçecek.</p>
         </div>
         <h3>🏆 İlk 5</h3>
@@ -947,6 +1026,12 @@
       if (!text) return showToast('Lütfen bir cevap metni yaz.');
       socket.emit('birthday:lockCustom', { text });
     });
+    on('bday-numeric-submit', 'click', () => {
+      const input = document.getElementById('bday-numeric-input');
+      const raw = input ? input.value : '';
+      if (raw === '' || !Number.isFinite(Number(raw))) return showToast('Lütfen geçerli bir sayı yaz.');
+      socket.emit('birthday:lockNumeric', { value: Number(raw) });
+    });
   }
 
   // ---------- OYUNCU: ODA EKRANI ----------
@@ -973,6 +1058,7 @@
         </div>
       `;
     } else if (s.status === 'question_open' && s.question) {
+      const isNumeric = s.question.type === 'numeric';
       body = `
         <div class="question-card">
           <div class="row">
@@ -982,26 +1068,40 @@
           </div>
           <p class="question-text">${esc(s.question.text)}</p>
           ${s.question.imageUrl ? `<img class="question-image" src="${esc(s.question.imageUrl)}" alt="">` : ''}
-          <div class="options-grid" id="player-options">${renderOptions(s.question.options, { selected: s.myChoice, disabled: s.hasAnswered })}</div>
+          ${isNumeric
+            ? (s.hasAnswered
+                ? `<p class="muted center">Tahminin: <strong>${s.myValue}${s.question.unit ? ' ' + esc(s.question.unit) : ''}</strong></p>`
+                : numericInputBox({ inputId: 'player-numeric-input', btnId: 'player-numeric-submit', unit: s.question.unit, placeholder: 'Tahminin', btnLabel: 'Gönder ✅' }))
+            : `<div class="options-grid" id="player-options">${renderOptions(s.question.options, { selected: s.myChoice, disabled: s.hasAnswered })}</div>`}
           ${s.hasAnswered ? '<p class="muted center" style="margin-top:10px">Cevabın kilitlendi, sonuçlar bekleniyor...</p>' : ''}
         </div>
       `;
     } else if (s.status === 'question_results' && s.question) {
-      const r = s.myResult || { correct: false, points: 0, choiceIndex: null };
+      const isNumeric = s.question.type === 'numeric';
+      const r = s.myResult || { correct: false, points: 0, choiceIndex: null, rank: null, value: null, distance: null };
       const resultSoundKey = s.code + '-' + s.questionIndex;
+      const won = isNumeric ? r.rank === 1 : r.correct;
       if (lastResultSoundKey !== resultSoundKey) {
         lastResultSoundKey = resultSoundKey;
-        if (r.correct) playFanfare(); else if (r.choiceIndex !== null) playWrongBuzz();
+        if (won) playFanfare(); else if (isNumeric ? r.value !== null : r.choiceIndex !== null) playWrongBuzz();
       }
+      const bannerText = isNumeric
+        ? (r.value === null ? '⌛ Cevap vermedin' : (won ? '🎉 En yakın tahmin sendeydi!' : `📏 Fark: ${r.distance}${s.question.unit ? ' ' + esc(s.question.unit) : ''} (sıran: ${r.rank})`))
+        : (r.correct ? '🎉 Doğru bildin!' : (r.choiceIndex === null ? '⌛ Cevap vermedin' : '❌ Yanlış cevap'));
       body = `
-        <div class="result-banner ${r.correct ? 'correct' : 'wrong'}">
-          ${r.correct ? '🎉 Doğru bildin!' : (r.choiceIndex === null ? '⌛ Cevap vermedin' : '❌ Yanlış cevap')}
+        <div class="result-banner ${won ? 'correct' : 'wrong'}">
+          ${bannerText}
           <span class="points">+${r.points} puan · Toplam: ${s.myScore}</span>
         </div>
         <div class="question-card">
           <p class="question-text">${esc(s.question.text)}</p>
-          <div class="options-grid">${renderOptions(s.question.options, { selected: r.choiceIndex, correctIndex: s.question.correctIndex })}</div>
-          ${renderDistribution(s.question.options, s.question.distribution, s.question.correctIndex)}
+          ${isNumeric ? `
+            <p class="muted center">Gerçek sayı: <strong>${s.question.correctValue}${s.question.unit ? ' ' + esc(s.question.unit) : ''}</strong></p>
+            ${renderGuessesList(s.question.guesses, s.question.unit)}
+          ` : `
+            <div class="options-grid">${renderOptions(s.question.options, { selected: r.choiceIndex, correctIndex: s.question.correctIndex })}</div>
+            ${renderDistribution(s.question.options, s.question.distribution, s.question.correctIndex)}
+          `}
           ${s.resultPhotoUrl ? `<img class="result-photo" src="${esc(s.resultPhotoUrl)}" alt="">` : ''}
         </div>
         <h3>🏆 İlk 5</h3>
@@ -1027,6 +1127,12 @@
     bindOptions('player-options', (idx) => {
       if (s.hasAnswered) return;
       socket.emit('player:answer', { choiceIndex: idx });
+    });
+    on('player-numeric-submit', 'click', () => {
+      const input = document.getElementById('player-numeric-input');
+      const raw = input ? input.value : '';
+      if (raw === '' || !Number.isFinite(Number(raw))) return showToast('Lütfen geçerli bir sayı yaz.');
+      socket.emit('player:answerNumeric', { value: Number(raw) });
     });
   }
 

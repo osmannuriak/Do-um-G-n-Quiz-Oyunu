@@ -62,21 +62,38 @@ function sanitizeImageField(value, label) {
 
 function sanitizeQuestion(q) {
   const text = String(q.text || '').trim();
-  const options = Array.isArray(q.options)
-    ? q.options.map((o) => String(o || '').trim()).filter((o) => o.length > 0)
-    : [];
+  const type = q.type === 'numeric' ? 'numeric' : 'choice';
   let timeLimit = parseInt(q.timeLimit, 10);
   if (!TIME_OPTIONS.includes(timeLimit)) timeLimit = DEFAULT_TIME;
   const imageUrl = sanitizeImageField(q.imageUrl, 'Soru gorseli');
   const doublePoints = q.doublePoints === true;
 
   if (!text) throw new Error('Soru metni bos olamaz.');
+
+  if (type === 'numeric') {
+    const unit = String(q.unit || '').trim().slice(0, 16);
+    return {
+      id: q.id && typeof q.id === 'string' ? q.id : nanoid(8),
+      text,
+      type,
+      options: [],
+      unit,
+      timeLimit,
+      imageUrl,
+      doublePoints,
+    };
+  }
+
+  const options = Array.isArray(q.options)
+    ? q.options.map((o) => String(o || '').trim()).filter((o) => o.length > 0)
+    : [];
   if (options.length < 2 || options.length > MAX_OPTIONS) {
     throw new Error(`Her sorunun 2 ile ${MAX_OPTIONS} arasinda secenegi olmalidir.`);
   }
   return {
     id: q.id && typeof q.id === 'string' ? q.id : nanoid(8),
     text,
+    type,
     options,
     timeLimit,
     imageUrl,
@@ -289,6 +306,21 @@ function answerDistribution(room, optionCount) {
   return counts;
 }
 
+// Sayi tahmini sorularinda, kim hangi sayiyi yazmis ve gercek sayiya ne kadar
+// yakinmis listesini (en yakindan en uzaga dogru siralanmis) dondurur.
+function numericGuessesPayload(room) {
+  if (!room.currentQuestion || room.currentQuestion.birthdayValue === null) return [];
+  const correctValue = room.currentQuestion.birthdayValue;
+  const list = [];
+  for (const [playerId, ans] of room.currentQuestion.answers.entries()) {
+    const player = room.players.get(playerId);
+    if (!player) continue;
+    list.push({ name: player.name, value: ans.value, distance: Math.abs(ans.value - correctValue) });
+  }
+  list.sort((a, b) => a.distance - b.distance);
+  return list;
+}
+
 function computePoints(answeredAt, openAt, durationSeconds, doublePoints) {
   const elapsedMs = Math.max(0, answeredAt - openAt);
   const durationMs = durationSeconds * 1000;
@@ -312,19 +344,19 @@ function startQuestion(room) {
   }
   room.currentQuestion = {
     birthdayChoice: null,
+    birthdayValue: null, // sayi tahmini sorularinda dogum gunu sahibinin yazdigi gercek sayi
     lockedAt: null,
     openAt: null,
     duration: currentQuestionData(room).timeLimit,
     doublePoints: !!currentQuestionData(room).doublePoints,
-    answers: new Map(), // playerId -> { choiceIndex, answeredAt }
+    answers: new Map(), // playerId -> { choiceIndex, answeredAt } veya { value, answeredAt }
     timer: null,
   };
   room.status = 'birthday_turn';
   syncRoom(room);
 }
 
-function lockWithIndex(room, choiceIndex) {
-  room.currentQuestion.birthdayChoice = choiceIndex;
+function openQuestionForAnswers(room) {
   room.currentQuestion.lockedAt = Date.now();
   room.currentQuestion.openAt = Date.now();
   room.status = 'question_open';
@@ -337,9 +369,14 @@ function lockWithIndex(room, choiceIndex) {
   syncRoom(room);
 }
 
+function lockWithIndex(room, choiceIndex) {
+  room.currentQuestion.birthdayChoice = choiceIndex;
+  openQuestionForAnswers(room);
+}
+
 function lockBirthdayAnswer(room, choiceIndex) {
   const q = currentQuestionData(room);
-  if (!q || room.status !== 'birthday_turn') return;
+  if (!q || room.status !== 'birthday_turn' || q.type !== 'choice') return;
   if (!Number.isInteger(choiceIndex) || choiceIndex < 0 || choiceIndex >= q.options.length) return;
   lockWithIndex(room, choiceIndex);
 }
@@ -348,7 +385,7 @@ function lockBirthdayAnswer(room, choiceIndex) {
 // metnini yeni bir sik olarak ekleyip onu dogru cevap olarak kilitleyebilir.
 function lockBirthdayCustomAnswer(room, socket, text) {
   const q = currentQuestionData(room);
-  if (!q || room.status !== 'birthday_turn') return;
+  if (!q || room.status !== 'birthday_turn' || q.type !== 'choice') return;
   const clean = String(text || '').trim().slice(0, 80);
   if (!clean) return err(socket, 'Lutfen bir cevap metni yaz.');
   if (q.options.length >= MAX_OPTIONS_LIVE) {
@@ -358,9 +395,20 @@ function lockBirthdayCustomAnswer(room, socket, text) {
   lockWithIndex(room, q.options.length - 1);
 }
 
+// Sayi tahmini sorularinda dogum gunu sahibi, hazirlanmis siklar yerine
+// gercek/dogru sayiyi kendisi canli olarak yazar.
+function lockBirthdayNumeric(room, socket, rawValue) {
+  const q = currentQuestionData(room);
+  if (!q || room.status !== 'birthday_turn' || q.type !== 'numeric') return;
+  const value = Number(rawValue);
+  if (!Number.isFinite(value)) return err(socket, 'Lutfen gecerli bir sayi gir.');
+  room.currentQuestion.birthdayValue = value;
+  openQuestionForAnswers(room);
+}
+
 function submitPlayerAnswer(room, playerId, choiceIndex) {
   const q = currentQuestionData(room);
-  if (!q || room.status !== 'question_open') return;
+  if (!q || room.status !== 'question_open' || q.type !== 'choice') return;
   const player = room.players.get(playerId);
   if (!player) return;
   if (room.currentQuestion.answers.has(playerId)) return; // ayni cevap iki kez islenemez
@@ -381,11 +429,32 @@ function submitPlayerAnswer(room, playerId, choiceIndex) {
   }
 }
 
-function finalizeQuestion(room) {
-  if (room.status !== 'question_open') return;
-  clearQuestionTimer(room);
-  room.previousRanking = rankedPlayers(room).map((p) => p.id);
+// Sayi tahmini sorularinda oyuncunun tahmini sayiyi gondermesi.
+function submitPlayerNumericAnswer(room, playerId, rawValue) {
+  const q = currentQuestionData(room);
+  if (!q || room.status !== 'question_open' || q.type !== 'numeric') return;
+  const player = room.players.get(playerId);
+  if (!player) return;
+  if (room.currentQuestion.answers.has(playerId)) return;
+  const value = Number(rawValue);
+  if (!Number.isFinite(value)) return;
 
+  const now = Date.now();
+  const deadline = room.currentQuestion.openAt + room.currentQuestion.duration * 1000;
+  if (now > deadline) return;
+
+  room.currentQuestion.answers.set(playerId, { value, answeredAt: now });
+  player.answeredCount = (player.answeredCount || 0) + 1;
+  syncRoom(room);
+
+  const connectedPlayers = activePlayers(room).filter((p) => p.connected);
+  if (connectedPlayers.length > 0 && connectedPlayers.every((p) => room.currentQuestion.answers.has(p.id))) {
+    clearQuestionTimer(room);
+    finalizeQuestion(room);
+  }
+}
+
+function finalizeChoiceQuestion(room) {
   const correctIndex = room.currentQuestion.birthdayChoice;
   const { openAt, duration, answers, doublePoints } = room.currentQuestion;
 
@@ -403,6 +472,58 @@ function finalizeQuestion(room) {
       player.correctResponseMsSum = (player.correctResponseMsSum || 0) + Math.max(0, ans.answeredAt - openAt);
     }
     player.lastResult = { choiceIndex: ans.choiceIndex, correct, points };
+  }
+}
+
+// Sayi tahmini puanlamasi: en yakin tahmin en yuksek puani alir, uzaklik
+// arttikca puan azalir; esit uzaklikta hizli cevaplayan one gecer (sira ona gore belirlenir).
+function finalizeNumericQuestion(room) {
+  const correctValue = room.currentQuestion.birthdayValue;
+  const { answers, doublePoints } = room.currentQuestion;
+
+  const answered = Array.from(answers.entries()).map(([playerId, ans]) => ({
+    playerId,
+    value: ans.value,
+    distance: Math.abs(ans.value - correctValue),
+    answeredAt: ans.answeredAt,
+  }));
+  answered.sort((a, b) => a.distance - b.distance || a.answeredAt - b.answeredAt);
+
+  const n = answered.length;
+  const answeredIds = new Set();
+  answered.forEach((a, i) => {
+    answeredIds.add(a.playerId);
+    const player = room.players.get(a.playerId);
+    if (!player) return;
+    const ratio = n > 1 ? i / (n - 1) : 0;
+    let points = Math.round(1000 - ratio * 500);
+    if (doublePoints) points *= 2;
+    player.score += points;
+    const exact = a.distance === 0;
+    if (exact) {
+      player.correctCount = (player.correctCount || 0) + 1;
+      player.correctResponseMsSum = (player.correctResponseMsSum || 0) + Math.max(0, a.answeredAt - room.currentQuestion.openAt);
+    }
+    player.lastResult = { value: a.value, distance: a.distance, rank: i + 1, correct: exact, points };
+  });
+
+  for (const player of room.players.values()) {
+    if (!answeredIds.has(player.id)) {
+      player.lastResult = { value: null, distance: null, rank: null, correct: false, points: 0 };
+    }
+  }
+}
+
+function finalizeQuestion(room) {
+  if (room.status !== 'question_open') return;
+  clearQuestionTimer(room);
+  room.previousRanking = rankedPlayers(room).map((p) => p.id);
+
+  const q = currentQuestionData(room);
+  if (q.type === 'numeric') {
+    finalizeNumericQuestion(room);
+  } else {
+    finalizeChoiceQuestion(room);
   }
 
   room.status = 'question_results';
@@ -446,6 +567,8 @@ function stateForAdmin(room) {
     const q = currentQuestionData(room);
     state.question = {
       text: q.text,
+      type: q.type,
+      unit: q.unit || '',
       options: q.options,
       imageUrl: q.imageUrl,
       duration: q.timeLimit,
@@ -454,8 +577,13 @@ function stateForAdmin(room) {
     };
   }
   if (room.status === 'question_results') {
-    state.question.correctIndex = room.currentQuestion.birthdayChoice;
-    state.question.distribution = answerDistribution(room, state.question.options.length);
+    if (state.question.type === 'numeric') {
+      state.question.correctValue = room.currentQuestion.birthdayValue;
+      state.question.guesses = numericGuessesPayload(room);
+    } else {
+      state.question.correctIndex = room.currentQuestion.birthdayChoice;
+      state.question.distribution = answerDistribution(room, state.question.options.length);
+    }
     state.leaderboard = leaderboardPayload(room);
   }
   if (room.status === 'finished') {
@@ -471,17 +599,26 @@ function stateForBirthday(room) {
   const q = currentQuestionData(room);
 
   if (room.status === 'birthday_turn' && q) {
-    state.question = { text: q.text, options: q.options, imageUrl: q.imageUrl, doublePoints: q.doublePoints };
+    state.question = { text: q.text, type: q.type, unit: q.unit || '', options: q.options, imageUrl: q.imageUrl, doublePoints: q.doublePoints };
     state.locked = false;
   } else if (room.status === 'question_open' && q) {
-    state.question = { text: q.text, options: q.options, imageUrl: q.imageUrl, doublePoints: q.doublePoints };
+    state.question = { text: q.text, type: q.type, unit: q.unit || '', options: q.options, imageUrl: q.imageUrl, doublePoints: q.doublePoints };
     state.locked = true;
     state.myChoice = room.currentQuestion.birthdayChoice;
+    state.myValue = room.currentQuestion.birthdayValue;
     state.answeredCount = room.currentQuestion.answers.size;
     state.playerTotal = activePlayers(room).filter((p) => p.connected).length;
   } else if (room.status === 'question_results' && q) {
-    state.question = { text: q.text, options: q.options, imageUrl: q.imageUrl, correctIndex: room.currentQuestion.birthdayChoice, doublePoints: q.doublePoints, distribution: answerDistribution(room, q.options.length) };
+    state.question = { text: q.text, type: q.type, unit: q.unit || '', options: q.options, imageUrl: q.imageUrl, doublePoints: q.doublePoints };
+    if (q.type === 'numeric') {
+      state.question.correctValue = room.currentQuestion.birthdayValue;
+      state.question.guesses = numericGuessesPayload(room);
+    } else {
+      state.question.correctIndex = room.currentQuestion.birthdayChoice;
+      state.question.distribution = answerDistribution(room, q.options.length);
+    }
     state.myChoice = room.currentQuestion.birthdayChoice;
+    state.myValue = room.currentQuestion.birthdayValue;
     const correctCount = Array.from(room.players.values()).filter((p) => p.lastResult && p.lastResult.correct).length;
     state.correctGuessers = correctCount;
     state.leaderboard = leaderboardPayload(room, 5);
@@ -504,6 +641,8 @@ function stateForPlayer(room, playerId) {
     const already = room.currentQuestion.answers.get(playerId);
     state.question = {
       text: q.text,
+      type: q.type,
+      unit: q.unit || '',
       options: q.options,
       imageUrl: q.imageUrl,
       duration: q.timeLimit,
@@ -512,13 +651,22 @@ function stateForPlayer(room, playerId) {
     };
     state.hasAnswered = !!already;
     state.myChoice = already ? already.choiceIndex : null;
+    state.myValue = already ? already.value : null;
   } else if (room.status === 'question_results' && q) {
-    state.question = { text: q.text, options: q.options, imageUrl: q.imageUrl, correctIndex: room.currentQuestion.birthdayChoice, doublePoints: q.doublePoints, distribution: answerDistribution(room, q.options.length) };
+    state.question = { text: q.text, type: q.type, unit: q.unit || '', options: q.options, imageUrl: q.imageUrl, doublePoints: q.doublePoints };
+    if (q.type === 'numeric') {
+      state.question.correctValue = room.currentQuestion.birthdayValue;
+      state.question.guesses = numericGuessesPayload(room);
+    } else {
+      state.question.correctIndex = room.currentQuestion.birthdayChoice;
+      state.question.distribution = answerDistribution(room, q.options.length);
+    }
     state.myResult = player ? player.lastResult : null;
     state.myScore = player ? player.score : 0;
     state.leaderboard = leaderboardPayload(room, 5);
     if (player && player.lastResult) {
-      state.resultPhotoUrl = player.lastResult.correct ? room.correctPhotoUrl : room.wrongPhotoUrl;
+      const won = q.type === 'numeric' ? player.lastResult.rank === 1 : player.lastResult.correct;
+      state.resultPhotoUrl = won ? room.correctPhotoUrl : room.wrongPhotoUrl;
     }
   } else if (room.status === 'finished') {
     state.leaderboard = leaderboardPayload(room);
@@ -672,6 +820,12 @@ io.on('connection', (socket) => {
     lockBirthdayCustomAnswer(room, socket, text);
   });
 
+  socket.on('birthday:lockNumeric', ({ value }) => {
+    const room = roomOf(socket, 'birthday');
+    if (!room) return;
+    lockBirthdayNumeric(room, socket, value);
+  });
+
   // --- Normal oyuncular ---
   socket.on('player:join', ({ code, name, savedId }) => {
     const room = rooms.get(String(code || '').toUpperCase());
@@ -698,6 +852,12 @@ io.on('connection', (socket) => {
     const room = roomOf(socket, 'player');
     if (!room) return;
     submitPlayerAnswer(room, socket.data.playerId, choiceIndex);
+  });
+
+  socket.on('player:answerNumeric', ({ value }) => {
+    const room = roomOf(socket, 'player');
+    if (!room) return;
+    submitPlayerNumericAnswer(room, socket.data.playerId, value);
   });
 
   socket.on('resync', () => syncOne(socket));
