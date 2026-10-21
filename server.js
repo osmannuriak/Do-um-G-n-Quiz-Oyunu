@@ -68,6 +68,7 @@ function sanitizeQuestion(q) {
   let timeLimit = parseInt(q.timeLimit, 10);
   if (!TIME_OPTIONS.includes(timeLimit)) timeLimit = DEFAULT_TIME;
   const imageUrl = sanitizeImageField(q.imageUrl, 'Soru gorseli');
+  const doublePoints = q.doublePoints === true;
 
   if (!text) throw new Error('Soru metni bos olamaz.');
   if (options.length < 2 || options.length > MAX_OPTIONS) {
@@ -79,6 +80,7 @@ function sanitizeQuestion(q) {
     options,
     timeLimit,
     imageUrl,
+    doublePoints,
   };
 }
 
@@ -228,11 +230,12 @@ function leaderboardPayload(room, limit) {
   return typeof limit === 'number' ? withDelta.slice(0, limit) : withDelta;
 }
 
-function computePoints(answeredAt, openAt, durationSeconds) {
+function computePoints(answeredAt, openAt, durationSeconds, doublePoints) {
   const elapsedMs = Math.max(0, answeredAt - openAt);
   const durationMs = durationSeconds * 1000;
   const ratio = Math.min(1, elapsedMs / durationMs);
-  return Math.round(1000 - ratio * 500); // anlik dogru cevap: 1000, sure sonunda dogru cevap: 500
+  const base = Math.round(1000 - ratio * 500); // anlik dogru cevap: 1000, sure sonunda dogru cevap: 500
+  return doublePoints ? base * 2 : base;
 }
 
 function clearQuestionTimer(room) {
@@ -253,6 +256,7 @@ function startQuestion(room) {
     lockedAt: null,
     openAt: null,
     duration: currentQuestionData(room).timeLimit,
+    doublePoints: !!currentQuestionData(room).doublePoints,
     answers: new Map(), // playerId -> { choiceIndex, answeredAt }
     timer: null,
   };
@@ -323,7 +327,7 @@ function finalizeQuestion(room) {
   room.previousRanking = rankedPlayers(room).map((p) => p.id);
 
   const correctIndex = room.currentQuestion.birthdayChoice;
-  const { openAt, duration, answers } = room.currentQuestion;
+  const { openAt, duration, answers, doublePoints } = room.currentQuestion;
 
   for (const player of room.players.values()) {
     const ans = answers.get(player.id);
@@ -332,7 +336,7 @@ function finalizeQuestion(room) {
       continue;
     }
     const correct = ans.choiceIndex === correctIndex;
-    const points = correct ? computePoints(ans.answeredAt, openAt, duration) : 0;
+    const points = correct ? computePoints(ans.answeredAt, openAt, duration, doublePoints) : 0;
     player.score += points;
     if (correct) player.correctCount = (player.correctCount || 0) + 1;
     player.lastResult = { choiceIndex: ans.choiceIndex, correct, points };
@@ -383,6 +387,7 @@ function stateForAdmin(room) {
       imageUrl: q.imageUrl,
       duration: q.timeLimit,
       openAt: room.currentQuestion.openAt,
+      doublePoints: q.doublePoints,
     };
   }
   if (room.status === 'question_results') {
@@ -401,16 +406,16 @@ function stateForBirthday(room) {
   const q = currentQuestionData(room);
 
   if (room.status === 'birthday_turn' && q) {
-    state.question = { text: q.text, options: q.options, imageUrl: q.imageUrl };
+    state.question = { text: q.text, options: q.options, imageUrl: q.imageUrl, doublePoints: q.doublePoints };
     state.locked = false;
   } else if (room.status === 'question_open' && q) {
-    state.question = { text: q.text, options: q.options, imageUrl: q.imageUrl };
+    state.question = { text: q.text, options: q.options, imageUrl: q.imageUrl, doublePoints: q.doublePoints };
     state.locked = true;
     state.myChoice = room.currentQuestion.birthdayChoice;
     state.answeredCount = room.currentQuestion.answers.size;
     state.playerTotal = activePlayers(room).filter((p) => p.connected).length;
   } else if (room.status === 'question_results' && q) {
-    state.question = { text: q.text, options: q.options, imageUrl: q.imageUrl, correctIndex: room.currentQuestion.birthdayChoice };
+    state.question = { text: q.text, options: q.options, imageUrl: q.imageUrl, correctIndex: room.currentQuestion.birthdayChoice, doublePoints: q.doublePoints };
     state.myChoice = room.currentQuestion.birthdayChoice;
     const correctCount = Array.from(room.players.values()).filter((p) => p.lastResult && p.lastResult.correct).length;
     state.correctGuessers = correctCount;
@@ -437,11 +442,12 @@ function stateForPlayer(room, playerId) {
       imageUrl: q.imageUrl,
       duration: q.timeLimit,
       openAt: room.currentQuestion.openAt,
+      doublePoints: q.doublePoints,
     };
     state.hasAnswered = !!already;
     state.myChoice = already ? already.choiceIndex : null;
   } else if (room.status === 'question_results' && q) {
-    state.question = { text: q.text, options: q.options, imageUrl: q.imageUrl, correctIndex: room.currentQuestion.birthdayChoice };
+    state.question = { text: q.text, options: q.options, imageUrl: q.imageUrl, correctIndex: room.currentQuestion.birthdayChoice, doublePoints: q.doublePoints };
     state.myResult = player ? player.lastResult : null;
     state.myScore = player ? player.score : 0;
     state.leaderboard = leaderboardPayload(room, 5);

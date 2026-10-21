@@ -65,6 +65,10 @@
 
   function optionShape(i) { return ['▲', '◆', '●', '■', '★', '♥'][i] || '?'; }
 
+  function doubleBadge(q) {
+    return q && q.doublePoints ? ' <span class="badge" style="background:var(--pink)">⭐ 2x PUAN</span>' : '';
+  }
+
   // Secilen gorsel dosyasini tarayicida kucultup (max 900px genislik, JPEG %72
   // kalite) base64 data URI'ya cevirir. Boylece hem yukleme hizli olur hem de
   // sunucuya/soket baglantisina asiri buyuk veri gitmez.
@@ -443,7 +447,7 @@
         title: '',
         correctPhotoUrl: '',
         wrongPhotoUrl: '',
-        questions: [{ text: '', options: ['', ''], timeLimit: 20, imageUrl: '' }],
+        questions: [{ text: '', options: ['', ''], timeLimit: 20, imageUrl: '', doublePoints: false }],
       };
       view = 'adminQuizEditor';
       render();
@@ -487,6 +491,8 @@
       if (textEl) q.text = textEl.value;
       const timeEl = document.querySelector(`[data-field="qtime"][data-qidx="${qi}"]`);
       if (timeEl) q.timeLimit = parseInt(timeEl.value, 10);
+      const doubleEl = document.querySelector(`[data-field="qdouble"][data-qidx="${qi}"]`);
+      if (doubleEl) q.doublePoints = doubleEl.checked;
       q.options.forEach((opt, oi) => {
         const optEl = document.querySelector(`[data-field="qopt"][data-qidx="${qi}"][data-oidx="${oi}"]`);
         if (optEl) q.options[oi] = optEl.value;
@@ -555,6 +561,10 @@
         <div style="margin-top:10px">
           ${imageUploadBox({ idPrefix: `qimg-${qi}`, label: 'Soru görseli (isteğe bağlı, cihazdan seç)', value: q.imageUrl })}
         </div>
+        <label class="row" style="margin-top:10px; gap:8px; cursor:pointer">
+          <input type="checkbox" data-field="qdouble" data-qidx="${qi}" ${q.doublePoints ? 'checked' : ''} style="width:20px;height:20px">
+          <span>⭐ Bu soru çift puan (2x) olsun</span>
+        </label>
       </div>`;
   }
 
@@ -562,7 +572,7 @@
     on('editor-back', 'click', goAdminQuizList);
     on('add-question', 'click', () => {
       syncEditorFromDOM();
-      editorQuiz.questions.push({ text: '', options: ['', ''], timeLimit: 20, imageUrl: '' });
+      editorQuiz.questions.push({ text: '', options: ['', ''], timeLimit: 20, imageUrl: '', doublePoints: false });
       renderAdminQuizEditor();
     });
     on('save-quiz', 'click', saveQuiz);
@@ -649,7 +659,7 @@
       correctPhotoUrl: editorQuiz.correctPhotoUrl || '',
       wrongPhotoUrl: editorQuiz.wrongPhotoUrl || '',
       questions: editorQuiz.questions.map((q) => ({
-        text: q.text.trim(), options: q.options.filter((o) => o.trim()), timeLimit: q.timeLimit, imageUrl: q.imageUrl,
+        text: q.text.trim(), options: q.options.filter((o) => o.trim()), timeLimit: q.timeLimit, imageUrl: q.imageUrl, doublePoints: !!q.doublePoints,
       })),
     };
     const url = editorQuiz.id ? '/api/quizzes/' + editorQuiz.id : '/api/quizzes';
@@ -717,7 +727,7 @@
       body = `
         <div class="question-card">
           <div class="row">
-            <span class="badge">Soru ${s.questionIndex + 1}/${s.totalQuestions}</span>
+            <span class="badge">Soru ${s.questionIndex + 1}/${s.totalQuestions}</span>${doubleBadge(s.question)}
             <div class="spacer"></div>
             <div class="timer-ring" id="timer-ring" style="--pct:100%"><span id="timer-text">${s.question.duration}</span></div>
           </div>
@@ -734,7 +744,7 @@
     } else if (s.status === 'question_results') {
       body = `
         <div class="question-card">
-          <span class="badge">Soru ${s.questionIndex + 1}/${s.totalQuestions} — Sonuç</span>
+          <span class="badge">Soru ${s.questionIndex + 1}/${s.totalQuestions} — Sonuç</span>${doubleBadge(s.question)}
           <p class="question-text" style="margin-top:10px">${esc(s.question.text)}</p>
           <div class="options-grid">${renderOptions(s.question.options, { correctIndex: s.question.correctIndex })}</div>
         </div>
@@ -793,7 +803,7 @@
     } else if (s.status === 'birthday_turn' && s.question) {
       body = `
         <div class="question-card">
-          <span class="badge">Soru ${s.questionIndex + 1}/${s.totalQuestions} — sadece sen görüyorsun 🤫</span>
+          <span class="badge">Soru ${s.questionIndex + 1}/${s.totalQuestions} — sadece sen görüyorsun 🤫</span>${doubleBadge(s.question)}
           <p class="question-text" style="margin-top:10px">${esc(s.question.text)}</p>
           ${s.question.imageUrl ? `<img class="question-image" src="${esc(s.question.imageUrl)}" alt="">` : ''}
           <p class="muted">Senin için doğru olan şıkkı seç. Süre sınırsız.</p>
@@ -820,7 +830,7 @@
     } else if (s.status === 'question_results' && s.question) {
       body = `
         <div class="question-card">
-          <span class="badge">Soru ${s.questionIndex + 1}/${s.totalQuestions} — Sonuç</span>
+          <span class="badge">Soru ${s.questionIndex + 1}/${s.totalQuestions} — Sonuç</span>${doubleBadge(s.question)}
           <p class="question-text" style="margin-top:10px">${esc(s.question.text)}</p>
           <div class="options-grid">${renderOptions(s.question.options, { selected: s.myChoice, correctIndex: s.question.correctIndex })}</div>
         </div>
@@ -882,7 +892,7 @@
       body = `
         <div class="question-card">
           <div class="row">
-            <span class="badge">Soru ${s.questionIndex + 1}/${s.totalQuestions}</span>
+            <span class="badge">Soru ${s.questionIndex + 1}/${s.totalQuestions}</span>${doubleBadge(s.question)}
             <div class="spacer"></div>
             <div class="timer-ring" id="timer-ring" style="--pct:100%"><span id="timer-text">${s.question.duration}</span></div>
           </div>
