@@ -19,6 +19,7 @@
   let joining = { role: null, code: null, token: null, name: null };
   let confettiFired = {};
   let joinError = '';
+  const TIME_OPTIONS = [10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60];
 
   // ---------- yardimcilar ----------
 
@@ -62,7 +63,71 @@
     ta.remove();
   }
 
-  function optionShape(i) { return ['▲', '◆', '●', '■'][i] || '?'; }
+  function optionShape(i) { return ['▲', '◆', '●', '■', '★', '♥'][i] || '?'; }
+
+  // Secilen gorsel dosyasini tarayicida kucultup (max 900px genislik, JPEG %72
+  // kalite) base64 data URI'ya cevirir. Boylece hem yukleme hizli olur hem de
+  // sunucuya/soket baglantisina asiri buyuk veri gitmez.
+  function fileToCompressedDataUrl(file, maxDim = 900, quality = 0.72) {
+    return new Promise((resolve, reject) => {
+      if (!file || !file.type || !file.type.startsWith('image/')) {
+        return reject(new Error('Lütfen bir görsel dosyası seç.'));
+      }
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('Dosya okunamadı.'));
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error('Görsel açılamadı.'));
+        img.onload = () => {
+          let { width, height } = img;
+          if (width > maxDim || height > maxDim) {
+            if (width >= height) { height = Math.round(height * (maxDim / width)); width = maxDim; }
+            else { width = Math.round(width * (maxDim / height)); height = maxDim; }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width; canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // Bir dosya input'unu dinler, secilen gorseli sikistirip hedef nesnenin
+  // belirtilen alanina yazar, onizlemeyi gunceller. onDone sonrasi cagrilir.
+  function bindImageInput(inputId, onPicked) {
+    const el = document.getElementById(inputId);
+    if (!el) return;
+    el.addEventListener('change', async () => {
+      const file = el.files && el.files[0];
+      if (!file) return;
+      try {
+        showToast('Görsel hazırlanıyor...');
+        const dataUrl = await fileToCompressedDataUrl(file);
+        onPicked(dataUrl);
+      } catch (e) {
+        showToast(e.message || 'Görsel yüklenemedi.');
+      }
+    });
+  }
+
+  function imageUploadBox({ idPrefix, label, value }) {
+    return `
+      <div>
+        <label>${esc(label)}</label>
+        <div class="image-upload-box">
+          ${value ? `
+            <div class="image-preview-wrap">
+              <img src="${esc(value)}" alt="">
+              <button type="button" class="image-preview-remove" id="${idPrefix}-remove">✕</button>
+            </div>
+          ` : `<input type="file" accept="image/*" id="${idPrefix}-file">`}
+        </div>
+      </div>`;
+  }
 
   function renderOptions(options, { selected = null, correctIndex = null, disabled = false, clickable = false } = {}) {
     return options.map((opt, i) => {
@@ -180,6 +245,18 @@
     if (latestSync) socket.emit('resync');
   });
 
+  socket.on('roomCancelled', () => {
+    const wasAdmin = latestSync && latestSync.role === 'admin';
+    latestSync = null;
+    if (wasAdmin) {
+      showToast('Oda iptal edildi.');
+      goAdminQuizList();
+    } else {
+      view = 'roomCancelled';
+      render();
+    }
+  });
+
   // ---------- baslangic yonlendirme ----------
 
   function boot() {
@@ -230,6 +307,7 @@
     if (view === 'adminRoom') return renderAdminRoom();
     if (view === 'birthdayRoom') return renderBirthdayRoom();
     if (view === 'playerRoom') return renderPlayerRoom();
+    if (view === 'roomCancelled') return renderRoomCancelled();
     renderHome();
   }
 
@@ -249,6 +327,20 @@
     `;
     on('go-admin', 'click', goAdminQuizList);
     on('go-join', 'click', () => { view = 'playerJoin'; render(); });
+  }
+
+  // ---------- ODA IPTAL EDILDI ----------
+
+  function renderRoomCancelled() {
+    $app.innerHTML = `
+      <div class="hero">
+        <div class="emoji">🚫</div>
+        <h2>Oda iptal edildi</h2>
+        <p class="muted">Yönetici bu odayı iptal etti.</p>
+      </div>
+      <button class="btn-primary btn-block btn-lg" id="cancelled-home">Ana sayfaya dön</button>
+    `;
+    on('cancelled-home', 'click', () => { view = 'home'; render(); });
   }
 
   // ---------- OYUNCU KATILMA ----------
@@ -347,7 +439,12 @@
     `;
     on('back-home', 'click', () => { view = 'home'; render(); });
     on('new-quiz', 'click', () => {
-      editorQuiz = { title: '', questions: [{ text: '', options: ['', ''], timeLimit: 20, imageUrl: '' }] };
+      editorQuiz = {
+        title: '',
+        correctPhotoUrl: '',
+        wrongPhotoUrl: '',
+        questions: [{ text: '', options: ['', ''], timeLimit: 20, imageUrl: '' }],
+      };
       view = 'adminQuizEditor';
       render();
     });
@@ -388,8 +485,6 @@
     editorQuiz.questions.forEach((q, qi) => {
       const textEl = document.querySelector(`[data-field="qtext"][data-qidx="${qi}"]`);
       if (textEl) q.text = textEl.value;
-      const imgEl = document.querySelector(`[data-field="qimage"][data-qidx="${qi}"]`);
-      if (imgEl) q.imageUrl = imgEl.value;
       const timeEl = document.querySelector(`[data-field="qtime"][data-qidx="${qi}"]`);
       if (timeEl) q.timeLimit = parseInt(timeEl.value, 10);
       q.options.forEach((opt, oi) => {
@@ -406,9 +501,17 @@
         <div class="spacer"></div>
       </div>
       <h2>${editorQuiz.id ? 'Quiz Düzenle' : 'Yeni Quiz'}</h2>
-      <div class="card">
-        <label>Quiz Başlığı</label>
-        <input type="text" id="quiz-title" placeholder="Örn: Ayşe'nin Doğum Günü Quiz'i" value="${esc(editorQuiz.title)}">
+      <div class="card stack">
+        <div>
+          <label>Quiz Başlığı</label>
+          <input type="text" id="quiz-title" placeholder="Örn: Ayşe'nin Doğum Günü Quiz'i" value="${esc(editorQuiz.title)}">
+        </div>
+      </div>
+      <div class="card stack">
+        <strong>🎉😢 Sonuç Fotoğrafları (isteğe bağlı)</strong>
+        <p class="muted">Oyuncular bir soruya doğru/yanlış cevap verince bu fotoğraflar gösterilir.</p>
+        ${imageUploadBox({ idPrefix: 'correct-photo', label: 'Doğru cevap fotoğrafı (mutlu/👍)', value: editorQuiz.correctPhotoUrl })}
+        ${imageUploadBox({ idPrefix: 'wrong-photo', label: 'Yanlış cevap fotoğrafı (üzgün)', value: editorQuiz.wrongPhotoUrl })}
       </div>
       <div id="questions-wrap" class="stack">
         ${editorQuiz.questions.map((q, qi) => renderQuestionEditor(q, qi, editorQuiz.questions.length)).join('')}
@@ -440,20 +543,17 @@
         </div>
         <label>Soru Metni</label>
         <textarea data-field="qtext" data-qidx="${qi}" rows="2" maxlength="200" placeholder="Örn: En sevdiğim renk hangisidir?">${esc(q.text)}</textarea>
-        <label style="margin-top:8px">Seçenekler (2-4)</label>
+        <label style="margin-top:8px">Seçenekler (2-6)</label>
         ${opts}
-        ${q.options.length < 4 ? `<button type="button" class="small-btn btn-secondary add-opt" data-qidx="${qi}">+ Seçenek</button>` : ''}
-        <div class="row wrap" style="margin-top:10px">
-          <div style="flex:1 1 140px">
-            <label>Cevap Süresi</label>
-            <select data-field="qtime" data-qidx="${qi}">
-              ${[10, 20, 30, 60].map((t) => `<option value="${t}" ${q.timeLimit === t ? 'selected' : ''}>${t} saniye</option>`).join('')}
-            </select>
-          </div>
-          <div style="flex:2 1 200px">
-            <label>Görsel URL (isteğe bağlı)</label>
-            <input type="url" data-field="qimage" data-qidx="${qi}" placeholder="https://..." value="${esc(q.imageUrl || '')}">
-          </div>
+        ${q.options.length < 6 ? `<button type="button" class="small-btn btn-secondary add-opt" data-qidx="${qi}">+ Seçenek</button>` : ''}
+        <div style="margin-top:10px">
+          <label>Cevap Süresi</label>
+          <select data-field="qtime" data-qidx="${qi}">
+            ${TIME_OPTIONS.map((t) => `<option value="${t}" ${q.timeLimit === t ? 'selected' : ''}>${t} saniye</option>`).join('')}
+          </select>
+        </div>
+        <div style="margin-top:10px">
+          ${imageUploadBox({ idPrefix: `qimg-${qi}`, label: 'Soru görseli (isteğe bağlı, cihazdan seç)', value: q.imageUrl })}
         </div>
       </div>`;
   }
@@ -478,7 +578,7 @@
     onAll('.add-opt', 'click', (e) => {
       syncEditorFromDOM();
       const qi = parseInt(e.currentTarget.dataset.qidx, 10);
-      if (editorQuiz.questions[qi].options.length >= 4) return;
+      if (editorQuiz.questions[qi].options.length >= 6) return;
       editorQuiz.questions[qi].options.push('');
       renderAdminQuizEditor();
     });
@@ -489,6 +589,42 @@
       if (editorQuiz.questions[qi].options.length <= 2) return;
       editorQuiz.questions[qi].options.splice(oi, 1);
       renderAdminQuizEditor();
+    });
+
+    // Quiz seviyesi sonuc fotograflari
+    bindImageInput('correct-photo-file', (dataUrl) => {
+      syncEditorFromDOM();
+      editorQuiz.correctPhotoUrl = dataUrl;
+      renderAdminQuizEditor();
+    });
+    on('correct-photo-remove', 'click', () => {
+      syncEditorFromDOM();
+      editorQuiz.correctPhotoUrl = '';
+      renderAdminQuizEditor();
+    });
+    bindImageInput('wrong-photo-file', (dataUrl) => {
+      syncEditorFromDOM();
+      editorQuiz.wrongPhotoUrl = dataUrl;
+      renderAdminQuizEditor();
+    });
+    on('wrong-photo-remove', 'click', () => {
+      syncEditorFromDOM();
+      editorQuiz.wrongPhotoUrl = '';
+      renderAdminQuizEditor();
+    });
+
+    // Soru gorselleri (her soru icin ayri dosya input'u)
+    editorQuiz.questions.forEach((q, qi) => {
+      bindImageInput(`qimg-${qi}-file`, (dataUrl) => {
+        syncEditorFromDOM();
+        editorQuiz.questions[qi].imageUrl = dataUrl;
+        renderAdminQuizEditor();
+      });
+      on(`qimg-${qi}-remove`, 'click', () => {
+        syncEditorFromDOM();
+        editorQuiz.questions[qi].imageUrl = '';
+        renderAdminQuizEditor();
+      });
     });
   }
 
@@ -510,6 +646,8 @@
     }
     const payload = {
       title: editorQuiz.title.trim(),
+      correctPhotoUrl: editorQuiz.correctPhotoUrl || '',
+      wrongPhotoUrl: editorQuiz.wrongPhotoUrl || '',
       questions: editorQuiz.questions.map((q) => ({
         text: q.text.trim(), options: q.options.filter((o) => o.trim()), timeLimit: q.timeLimit, imageUrl: q.imageUrl,
       })),
@@ -563,6 +701,7 @@
         </div>
         <button class="btn-success btn-block btn-lg" id="start-game" ${s.birthdayName ? '' : 'disabled'}>Oyunu Başlat 🚀</button>
         ${!s.birthdayName ? '<p class="muted center">Başlatmak için doğum günü çocuğunun katılması gerekiyor.</p>' : ''}
+        <button class="btn-ghost btn-block" id="cancel-room">Odayı İptal Et</button>
       `;
     } else if (s.status === 'birthday_turn') {
       body = `
@@ -627,6 +766,7 @@
     on('start-game', 'click', () => socket.emit('admin:start'));
     on('next-question', 'click', () => socket.emit('admin:next'));
     on('admin-end', 'click', () => { if (confirm('Oyunu şimdi bitirmek istediğine emin misin?')) socket.emit('admin:end'); });
+    on('cancel-room', 'click', () => { if (confirm('Bu oda tamamen iptal edilsin mi? Herkes odadan çıkarılacak.')) socket.emit('admin:cancelRoom'); });
     on('back-to-list', 'click', goAdminQuizList);
   }
 
@@ -658,6 +798,13 @@
           ${s.question.imageUrl ? `<img class="question-image" src="${esc(s.question.imageUrl)}" alt="">` : ''}
           <p class="muted">Senin için doğru olan şıkkı seç. Süre sınırsız.</p>
           <div class="options-grid" id="bday-options">${renderOptions(s.question.options)}</div>
+          <div class="custom-answer-box">
+            <button type="button" class="custom-answer-toggle" id="custom-answer-toggle">Doğru cevap şıklarda yok, kendim yazayım ✏️</button>
+            <div class="custom-answer-form" id="custom-answer-form" style="display:none">
+              <input type="text" id="custom-answer-text" maxlength="80" placeholder="Doğru cevabı yaz">
+              <button type="button" class="btn-primary" id="custom-answer-submit">Ekle ve Cevabımı Kilitle 🔒</button>
+            </div>
+          </div>
         </div>
       `;
     } else if (s.status === 'question_open' && s.question) {
@@ -681,6 +828,8 @@
           <p>🎯 <strong>${s.correctGuessers}</strong> kişi senin seçtiğin cevabı buldu!</p>
           <p class="muted">Sıradaki soruya yönetici geçecek.</p>
         </div>
+        <h3>🏆 İlk 5</h3>
+        ${renderLeaderboard(s.leaderboard)}
       `;
     } else if (s.status === 'finished') {
       maybeFireConfetti(s.code);
@@ -694,6 +843,16 @@
     $app.innerHTML = `<div class="row"><strong>${esc(s.title)}</strong></div>${body}`;
 
     bindOptions('bday-options', (idx) => socket.emit('birthday:lock', { choiceIndex: idx }));
+    on('custom-answer-toggle', 'click', () => {
+      const form = document.getElementById('custom-answer-form');
+      if (form) form.style.display = form.style.display === 'none' ? 'flex' : 'none';
+    });
+    on('custom-answer-submit', 'click', () => {
+      const input = document.getElementById('custom-answer-text');
+      const text = input ? input.value.trim() : '';
+      if (!text) return showToast('Lütfen bir cevap metni yaz.');
+      socket.emit('birthday:lockCustom', { text });
+    });
   }
 
   // ---------- OYUNCU: ODA EKRANI ----------
@@ -743,6 +902,7 @@
         <div class="question-card">
           <p class="question-text">${esc(s.question.text)}</p>
           <div class="options-grid">${renderOptions(s.question.options, { selected: r.choiceIndex, correctIndex: s.question.correctIndex })}</div>
+          ${s.resultPhotoUrl ? `<img class="result-photo" src="${esc(s.resultPhotoUrl)}" alt="">` : ''}
         </div>
         <h3>🏆 İlk 5</h3>
         ${renderLeaderboard(s.leaderboard)}

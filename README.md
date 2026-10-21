@@ -105,3 +105,18 @@ data/quizzes.json       → kaydedilen quiz'ler (otomatik oluşur)
 - Sayfa yenilenince oyuncu/doğum günü sahibi/yönetici kaldığı yerden devam
   eder (localStorage ile kimlik hatırlanır).
 
+## Ek özellikler
+
+- Soru görselleri ve sonuç fotoğrafları (doğru/yanlış) doğrudan cihazdan
+  seçilir; tarayıcıda otomatik küçültülüp (max ~900px, JPEG) kaydedilir,
+  ayrı bir dosya sunucusu gerekmez.
+- Soru süresi 10 ile 60 saniye arasında 5'er saniyelik adımlarla seçilebilir.
+- Her soruda 2 ile 6 arasında şık olabilir.
+- Lobide, oyun başlamadan önce oda tamamen iptal edilebilir (herkes
+  bilgilendirilir).
+- Doğum günü sahibi, hazırlanmış şıklarda doğru cevabı bulamazsa canlı
+  olarak kendi cevabını yeni bir şık şeklinde ekleyip kilitleyebilir (bu,
+  sadece o oda/oyun için geçerlidir, kayıtlı quiz'i değiştirmez).
+- Her sorudan sonra doğum günü sahibinin ekranında da ilk 5 sıralaması
+  gösterilir.
+

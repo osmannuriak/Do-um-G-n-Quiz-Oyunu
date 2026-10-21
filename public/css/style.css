@@ -225,6 +225,8 @@ label { font-weight: 700; font-size: 0.9rem; color: var(--text-dim); display:blo
 .opt-1 { background: linear-gradient(135deg, #4fc3f7, #3aa9e0); }
 .opt-2 { background: linear-gradient(135deg, #ffc83d, #ffb000); color: #3a2200; }
 .opt-3 { background: linear-gradient(135deg, #8b5cf6, #6d3df2); }
+.opt-4 { background: linear-gradient(135deg, #2ecc71, #27ae60); }
+.opt-5 { background: linear-gradient(135deg, #ff8a5c, #ff6a3d); }
 .option-btn.selected { outline: 4px solid white; }
 .option-btn.correct { outline: 4px solid var(--green); }
 .option-btn.wrong { outline: 4px solid var(--red); opacity: 0.6; }
@@ -300,6 +302,42 @@ label { font-weight: 700; font-size: 0.9rem; color: var(--text-dim); display:blo
   background: var(--red); color: white; padding: 12px 18px; border-radius: 12px;
   font-weight: 700; box-shadow: 0 6px 20px rgba(0,0,0,0.4); z-index: 50; max-width: 90vw; text-align:center;
 }
+
+/* ---------- Gorsel yukleme / onizleme ---------- */
+
+.image-upload-box {
+  border: 2px dashed var(--card-light);
+  border-radius: 14px;
+  padding: 10px;
+  text-align: center;
+}
+.image-upload-box input[type=file] {
+  width: 100%;
+  background: var(--card-light);
+  border-radius: 10px;
+  padding: 10px;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+.image-preview-wrap { position: relative; display: inline-block; margin-top: 8px; }
+.image-preview-wrap img { max-width: 100%; max-height: 160px; border-radius: 12px; display: block; }
+.image-preview-remove {
+  position: absolute; top: -8px; right: -8px;
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--red); color: white; font-weight: 800;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0; box-shadow: 0 3px 0 rgba(0,0,0,0.25);
+}
+
+/* ---------- Dogum gunu sahibi: ozel cevap ekleme ---------- */
+
+.custom-answer-box { margin-top: 14px; }
+.custom-answer-toggle { background: transparent; border: 2px dashed var(--card-light); color: var(--text-dim); width: 100%; }
+.custom-answer-form { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+
+/* ---------- Sonuc fotografi ---------- */
+
+.result-photo { width: 100%; max-height: 260px; object-fit: cover; border-radius: var(--radius); margin-top: 12px; }
 
 #confetti-layer { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 40; }
 .confetti-piece { position: absolute; top: -20px; border-radius: 2px; animation: fall linear forwards; }

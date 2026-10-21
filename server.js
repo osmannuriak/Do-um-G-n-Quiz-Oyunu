@@ -20,8 +20,11 @@ const DATA_FILE = path.join(__dirname, 'data', 'quizzes.json');
 // Oda kodu icin karistirilmasi kolay harfleri (O,0,I,1) disarida birakan alfabe
 const roomCodeGen = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', 6);
 
-const TIME_OPTIONS = [10, 20, 30, 60];
+const TIME_OPTIONS = [10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60];
 const DEFAULT_TIME = 20;
+const MAX_OPTIONS = 6; // editorde izin verilen normal ust sinir
+const MAX_OPTIONS_LIVE = 8; // dogum gunu sahibi canli olarak ozel cevap eklerse ulasabilecegi ust sinir
+const MAX_IMAGE_CHARS = 2_200_000; // ~1.6MB'lik sikistirilmis gorsel icin base64 payi
 
 // ---------------------------------------------------------------------------
 // Quiz kalici depolama (basit JSON dosyasi)
@@ -43,6 +46,20 @@ function saveQuizzes(quizzes) {
 
 let quizzes = loadQuizzes();
 
+function sanitizeImageField(value, label) {
+  if (!value) return '';
+  const str = String(value).trim();
+  if (!str) return '';
+  if (str.length > MAX_IMAGE_CHARS) {
+    throw new Error(`${label} cok buyuk. Lutfen daha kucuk/sikistirilmis bir gorsel sec.`);
+  }
+  // Basit bir guvenlik: sadece data: URI veya http(s) linklerine izin ver.
+  if (!/^data:image\//i.test(str) && !/^https?:\/\//i.test(str)) {
+    throw new Error(`${label} gecersiz bir formatta.`);
+  }
+  return str;
+}
+
 function sanitizeQuestion(q) {
   const text = String(q.text || '').trim();
   const options = Array.isArray(q.options)
@@ -50,11 +67,11 @@ function sanitizeQuestion(q) {
     : [];
   let timeLimit = parseInt(q.timeLimit, 10);
   if (!TIME_OPTIONS.includes(timeLimit)) timeLimit = DEFAULT_TIME;
-  const imageUrl = q.imageUrl ? String(q.imageUrl).trim().slice(0, 1000) : '';
+  const imageUrl = sanitizeImageField(q.imageUrl, 'Soru gorseli');
 
   if (!text) throw new Error('Soru metni bos olamaz.');
-  if (options.length < 2 || options.length > 4) {
-    throw new Error('Her sorunun 2 ile 4 arasinda secenegi olmalidir.');
+  if (options.length < 2 || options.length > MAX_OPTIONS) {
+    throw new Error(`Her sorunun 2 ile ${MAX_OPTIONS} arasinda secenegi olmalidir.`);
   }
   return {
     id: q.id && typeof q.id === 'string' ? q.id : nanoid(8),
@@ -71,7 +88,9 @@ function sanitizeQuiz(input) {
   const questionsRaw = Array.isArray(input.questions) ? input.questions : [];
   if (questionsRaw.length < 1) throw new Error('En az bir soru eklemelisiniz.');
   const questions = questionsRaw.map(sanitizeQuestion);
-  return { title, questions };
+  const correctPhotoUrl = sanitizeImageField(input.correctPhotoUrl, 'Dogru cevap fotografi');
+  const wrongPhotoUrl = sanitizeImageField(input.wrongPhotoUrl, 'Yanlis cevap fotografi');
+  return { title, questions, correctPhotoUrl, wrongPhotoUrl };
 }
 
 // ---------------------------------------------------------------------------
@@ -79,7 +98,7 @@ function sanitizeQuiz(input) {
 // ---------------------------------------------------------------------------
 
 const app = express();
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '30mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 function quizSummary(quiz) {
@@ -156,7 +175,11 @@ function createRoom(quiz) {
     code,
     quizId: quiz.id,
     quizTitle: quiz.title,
-    questions: quiz.questions, // olusturuldugu andaki kopya (snapshot)
+    // Sorularin ve seceneklerin DERIN kopyasi: oyun icinde (ozel cevap ekleme gibi)
+    // yapilan degisiklikler kaydedilmis asil quiz'i etkilemesin.
+    questions: quiz.questions.map((q) => ({ ...q, options: [...q.options] })),
+    correctPhotoUrl: quiz.correctPhotoUrl || '',
+    wrongPhotoUrl: quiz.wrongPhotoUrl || '',
     adminToken: nanoid(16),
     birthdayToken: nanoid(16),
     adminSocketId: null,
@@ -237,11 +260,7 @@ function startQuestion(room) {
   syncRoom(room);
 }
 
-function lockBirthdayAnswer(room, choiceIndex) {
-  const q = currentQuestionData(room);
-  if (!q || room.status !== 'birthday_turn') return;
-  if (!Number.isInteger(choiceIndex) || choiceIndex < 0 || choiceIndex >= q.options.length) return;
-
+function lockWithIndex(room, choiceIndex) {
   room.currentQuestion.birthdayChoice = choiceIndex;
   room.currentQuestion.lockedAt = Date.now();
   room.currentQuestion.openAt = Date.now();
@@ -253,6 +272,27 @@ function lockBirthdayAnswer(room, choiceIndex) {
   }, durationMs);
 
   syncRoom(room);
+}
+
+function lockBirthdayAnswer(room, choiceIndex) {
+  const q = currentQuestionData(room);
+  if (!q || room.status !== 'birthday_turn') return;
+  if (!Number.isInteger(choiceIndex) || choiceIndex < 0 || choiceIndex >= q.options.length) return;
+  lockWithIndex(room, choiceIndex);
+}
+
+// Dogum gunu sahibi, hazirlanmis siklarda dogru cevabi bulamazsa kendi
+// metnini yeni bir sik olarak ekleyip onu dogru cevap olarak kilitleyebilir.
+function lockBirthdayCustomAnswer(room, socket, text) {
+  const q = currentQuestionData(room);
+  if (!q || room.status !== 'birthday_turn') return;
+  const clean = String(text || '').trim().slice(0, 80);
+  if (!clean) return err(socket, 'Lutfen bir cevap metni yaz.');
+  if (q.options.length >= MAX_OPTIONS_LIVE) {
+    return err(socket, 'Bu soruya daha fazla sik eklenemez.');
+  }
+  q.options.push(clean);
+  lockWithIndex(room, q.options.length - 1);
 }
 
 function submitPlayerAnswer(room, playerId, choiceIndex) {
@@ -374,6 +414,7 @@ function stateForBirthday(room) {
     state.myChoice = room.currentQuestion.birthdayChoice;
     const correctCount = Array.from(room.players.values()).filter((p) => p.lastResult && p.lastResult.correct).length;
     state.correctGuessers = correctCount;
+    state.leaderboard = leaderboardPayload(room, 5);
   } else if (room.status === 'finished') {
     state.leaderboard = leaderboardPayload(room);
   }
@@ -404,6 +445,9 @@ function stateForPlayer(room, playerId) {
     state.myResult = player ? player.lastResult : null;
     state.myScore = player ? player.score : 0;
     state.leaderboard = leaderboardPayload(room, 5);
+    if (player && player.lastResult) {
+      state.resultPhotoUrl = player.lastResult.correct ? room.correctPhotoUrl : room.wrongPhotoUrl;
+    }
   } else if (room.status === 'finished') {
     state.leaderboard = leaderboardPayload(room);
     state.myScore = player ? player.score : 0;
@@ -470,7 +514,7 @@ app.get('*', (req, res) => {
 // ---------------------------------------------------------------------------
 
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: '*' } });
+const io = new Server(server, { cors: { origin: '*' }, maxHttpBufferSize: 20e6 });
 
 function err(socket, message) {
   socket.emit('errorMsg', { message });
@@ -511,6 +555,15 @@ io.on('connection', (socket) => {
     finishGame(room);
   });
 
+  socket.on('admin:cancelRoom', () => {
+    const room = roomOf(socket, 'admin');
+    if (!room) return;
+    if (room.status !== 'lobby') return; // sadece oyun baslamadan once iptal edilebilir
+    clearQuestionTimer(room);
+    io.to(room.code).emit('roomCancelled');
+    rooms.delete(room.code);
+  });
+
   // --- Dogum gunu sahibi ---
   socket.on('birthday:join', ({ code, token, name, savedId }) => {
     const room = rooms.get(String(code || '').toUpperCase());
@@ -538,6 +591,12 @@ io.on('connection', (socket) => {
     const room = roomOf(socket, 'birthday');
     if (!room) return;
     lockBirthdayAnswer(room, choiceIndex);
+  });
+
+  socket.on('birthday:lockCustom', ({ text }) => {
+    const room = roomOf(socket, 'birthday');
+    if (!room) return;
+    lockBirthdayCustomAnswer(room, socket, text);
   });
 
   // --- Normal oyuncular ---
