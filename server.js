@@ -230,6 +230,54 @@ function leaderboardPayload(room, limit) {
   return typeof limit === 'number' ? withDelta.slice(0, limit) : withDelta;
 }
 
+// Final unvanlari: podyum (ilk 3) disinda, oyun boyunca verilen cevaplara
+// gore eglenceli rozetler. Her biri yoksa (yeterli oyuncu/aday yoksa) atlanir.
+function computeBadges(room) {
+  const badges = [];
+  const ranked = rankedPlayers(room);
+  const totalQuestions = room.questions.length;
+
+  // En Hizli Parmaklar: dogru cevaplarinin ortalama suresi en kisa olan.
+  let fastest = null;
+  let fastestAvg = Infinity;
+  for (const p of ranked) {
+    if ((p.correctCount || 0) > 0) {
+      const avg = p.correctResponseMsSum / p.correctCount;
+      if (avg < fastestAvg) {
+        fastestAvg = avg;
+        fastest = p;
+      }
+    }
+  }
+  if (fastest) badges.push({ emoji: '⚡', title: 'En Hizli Parmaklar', name: fastest.name });
+
+  // Kahin Gozu: podyuma giremeyen (4. siradan asagisi) ama en cok dogru bilen.
+  if (ranked.length > 3) {
+    let kahin = null;
+    let kahinCount = 0;
+    for (const p of ranked.slice(3)) {
+      if ((p.correctCount || 0) > kahinCount) {
+        kahinCount = p.correctCount;
+        kahin = p;
+      }
+    }
+    if (kahin && kahinCount > 0) badges.push({ emoji: '🎯', title: 'Kahin Gozu', name: kahin.name });
+  }
+
+  // Pes Etmeyen: hicbir soruyu atlamadan sonuna kadar cevap veren ama en az puanli.
+  if (totalQuestions > 0) {
+    const finishers = ranked.filter((p) => (p.answeredCount || 0) >= totalQuestions);
+    if (finishers.length > 0) {
+      const persistent = finishers
+        .slice()
+        .sort((a, b) => a.score - b.score || a.name.localeCompare(b.name, 'tr'))[0];
+      badges.push({ emoji: '🐢', title: 'Pes Etmeyen', name: persistent.name });
+    }
+  }
+
+  return badges;
+}
+
 // Bir sorunun her sikkini kac oyuncunun isaretledigini sayar (Kahoot tarzi
 // sonuc sutun grafigi icin). optionCount uzunlugunda bir sayi dizisi doner.
 function answerDistribution(room, optionCount) {
@@ -323,6 +371,7 @@ function submitPlayerAnswer(room, playerId, choiceIndex) {
   if (now > deadline) return; // sure dolduktan sonra gelen cevap kabul edilmez
 
   room.currentQuestion.answers.set(playerId, { choiceIndex, answeredAt: now });
+  player.answeredCount = (player.answeredCount || 0) + 1;
   syncRoom(room);
 
   const connectedPlayers = activePlayers(room).filter((p) => p.connected);
@@ -349,7 +398,10 @@ function finalizeQuestion(room) {
     const correct = ans.choiceIndex === correctIndex;
     const points = correct ? computePoints(ans.answeredAt, openAt, duration, doublePoints) : 0;
     player.score += points;
-    if (correct) player.correctCount = (player.correctCount || 0) + 1;
+    if (correct) {
+      player.correctCount = (player.correctCount || 0) + 1;
+      player.correctResponseMsSum = (player.correctResponseMsSum || 0) + Math.max(0, ans.answeredAt - openAt);
+    }
     player.lastResult = { choiceIndex: ans.choiceIndex, correct, points };
   }
 
@@ -408,6 +460,7 @@ function stateForAdmin(room) {
   }
   if (room.status === 'finished') {
     state.leaderboard = leaderboardPayload(room);
+    state.badges = computeBadges(room);
   }
   return state;
 }
@@ -434,6 +487,7 @@ function stateForBirthday(room) {
     state.leaderboard = leaderboardPayload(room, 5);
   } else if (room.status === 'finished') {
     state.leaderboard = leaderboardPayload(room);
+    state.badges = computeBadges(room);
   }
   return state;
 }
@@ -470,6 +524,7 @@ function stateForPlayer(room, playerId) {
     state.leaderboard = leaderboardPayload(room);
     state.myScore = player ? player.score : 0;
     state.myCorrectCount = player ? player.correctCount || 0 : 0;
+    state.badges = computeBadges(room);
   }
   return state;
 }
@@ -627,7 +682,7 @@ io.on('connection', (socket) => {
       const cleanName = String(name || '').trim().slice(0, 24);
       if (!cleanName) return err(socket, 'Lutfen bir isim gir.');
       const id = nanoid(10);
-      player = { id, name: cleanName, socketId: socket.id, connected: true, score: 0, correctCount: 0, lastResult: null };
+      player = { id, name: cleanName, socketId: socket.id, connected: true, score: 0, correctCount: 0, answeredCount: 0, correctResponseMsSum: 0, lastResult: null };
       room.players.set(id, player);
     } else {
       player.socketId = socket.id;

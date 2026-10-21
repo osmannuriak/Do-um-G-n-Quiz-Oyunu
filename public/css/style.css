@@ -288,6 +288,20 @@ label { font-weight: 700; font-size: 0.9rem; color: var(--text-dim); display:blo
 .podium .p3 .bar { height: 70px; background: linear-gradient(180deg,#f0b27a,#c87f45); }
 .podium .name { font-weight: 800; margin-top: 6px; font-size: 0.9rem; }
 
+/* ---------- Final unvanlari (rozetler) ---------- */
+.badges-box { margin: 16px 0; }
+.badges-box h3 { text-align: center; margin-bottom: 10px; }
+.badges-list { display: flex; flex-direction: column; gap: 8px; }
+.badge-row {
+  display: flex; align-items: center; gap: 10px;
+  background: linear-gradient(135deg, #fff6e0, #ffe9c2);
+  border: 1px solid #f4d79a; border-radius: 12px;
+  padding: 10px 14px;
+}
+.badge-emoji { font-size: 1.6rem; flex: 0 0 auto; }
+.badge-title { font-weight: 800; flex: 1; }
+.badge-name { font-weight: 700; color: #8a5a00; }
+
 /* ---------- Quiz editoru ---------- */
 
 .question-editor-item { background: var(--card-light); border-radius: 14px; padding: 14px; }

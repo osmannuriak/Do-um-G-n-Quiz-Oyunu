@@ -237,6 +237,19 @@
     return `<div class="podium">${step(b, 'p2', '2')}${step(a, 'p1', '1')}${step(c, 'p3', '3')}</div>`;
   }
 
+  function renderBadges(badges) {
+    if (!badges || !badges.length) return '';
+    return `<div class="badges-box">
+      <h3>🎖️ Final Unvanları</h3>
+      <div class="badges-list">${badges.map((b) => `
+        <div class="badge-row">
+          <span class="badge-emoji">${b.emoji}</span>
+          <span class="badge-title">${esc(b.title)}</span>
+          <span class="badge-name">${esc(b.name)}</span>
+        </div>`).join('')}</div>
+    </div>`;
+  }
+
   function launchConfetti() {
     const layer = document.getElementById('confetti-layer');
     if (!layer) return;
@@ -828,6 +841,7 @@
       body = `
         <div class="hero"><div class="emoji">🏆🎉</div><h2>Oyun Bitti!</h2></div>
         ${renderPodium(s.leaderboard)}
+        ${renderBadges(s.badges)}
         <h3>Tüm Oyuncular</h3>
         ${renderLeaderboard(s.leaderboard)}
         <button class="btn-primary btn-block btn-lg" id="back-to-list">Quiz Listesine Dön</button>
@@ -914,6 +928,7 @@
       maybeFireConfetti(s.code);
       body = `
         <div class="hero"><div class="emoji">🎂🎉🥳</div><h2>İyi ki doğdun!</h2></div>
+        ${renderBadges(s.badges)}
         <h3>Final Sıralaması</h3>
         ${renderLeaderboard(s.leaderboard)}
       `;
@@ -1001,6 +1016,7 @@
           <p class="muted">${s.myCorrectCount} doğru cevap</p>
         </div>
         ${renderPodium(s.leaderboard)}
+        ${renderBadges(s.badges)}
         <h3>Final Sıralaması</h3>
         ${renderLeaderboard(s.leaderboard)}
       `;
