@@ -230,6 +230,17 @@ function leaderboardPayload(room, limit) {
   return typeof limit === 'number' ? withDelta.slice(0, limit) : withDelta;
 }
 
+// Bir sorunun her sikkini kac oyuncunun isaretledigini sayar (Kahoot tarzi
+// sonuc sutun grafigi icin). optionCount uzunlugunda bir sayi dizisi doner.
+function answerDistribution(room, optionCount) {
+  const counts = new Array(optionCount).fill(0);
+  if (!room.currentQuestion) return counts;
+  for (const ans of room.currentQuestion.answers.values()) {
+    if (ans.choiceIndex >= 0 && ans.choiceIndex < optionCount) counts[ans.choiceIndex] += 1;
+  }
+  return counts;
+}
+
 function computePoints(answeredAt, openAt, durationSeconds, doublePoints) {
   const elapsedMs = Math.max(0, answeredAt - openAt);
   const durationMs = durationSeconds * 1000;
@@ -392,6 +403,7 @@ function stateForAdmin(room) {
   }
   if (room.status === 'question_results') {
     state.question.correctIndex = room.currentQuestion.birthdayChoice;
+    state.question.distribution = answerDistribution(room, state.question.options.length);
     state.leaderboard = leaderboardPayload(room);
   }
   if (room.status === 'finished') {
@@ -415,7 +427,7 @@ function stateForBirthday(room) {
     state.answeredCount = room.currentQuestion.answers.size;
     state.playerTotal = activePlayers(room).filter((p) => p.connected).length;
   } else if (room.status === 'question_results' && q) {
-    state.question = { text: q.text, options: q.options, imageUrl: q.imageUrl, correctIndex: room.currentQuestion.birthdayChoice, doublePoints: q.doublePoints };
+    state.question = { text: q.text, options: q.options, imageUrl: q.imageUrl, correctIndex: room.currentQuestion.birthdayChoice, doublePoints: q.doublePoints, distribution: answerDistribution(room, q.options.length) };
     state.myChoice = room.currentQuestion.birthdayChoice;
     const correctCount = Array.from(room.players.values()).filter((p) => p.lastResult && p.lastResult.correct).length;
     state.correctGuessers = correctCount;
@@ -447,7 +459,7 @@ function stateForPlayer(room, playerId) {
     state.hasAnswered = !!already;
     state.myChoice = already ? already.choiceIndex : null;
   } else if (room.status === 'question_results' && q) {
-    state.question = { text: q.text, options: q.options, imageUrl: q.imageUrl, correctIndex: room.currentQuestion.birthdayChoice, doublePoints: q.doublePoints };
+    state.question = { text: q.text, options: q.options, imageUrl: q.imageUrl, correctIndex: room.currentQuestion.birthdayChoice, doublePoints: q.doublePoints, distribution: answerDistribution(room, q.options.length) };
     state.myResult = player ? player.lastResult : null;
     state.myScore = player ? player.score : 0;
     state.leaderboard = leaderboardPayload(room, 5);

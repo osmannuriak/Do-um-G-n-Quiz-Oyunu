@@ -199,6 +199,21 @@
     });
   }
 
+  function renderDistribution(options, distribution, correctIndex) {
+    if (!distribution) return '';
+    const max = Math.max(1, ...distribution);
+    return `<div class="dist-chart">${options.map((opt, i) => {
+      const count = distribution[i] || 0;
+      const pct = Math.round((count / max) * 100);
+      const correctCls = i === correctIndex ? ' dist-correct' : '';
+      return `<div class="dist-row">
+        <div class="dist-label"><span class="shape">${optionShape(i)}</span>${esc(opt)}</div>
+        <div class="dist-bar-track"><div class="dist-bar opt-${i}${correctCls}" style="width:${pct}%"></div></div>
+        <div class="dist-count">${count}</div>
+      </div>`;
+    }).join('')}</div>`;
+  }
+
   function renderLeaderboard(list) {
     if (!list || !list.length) return '<p class="muted center">Henüz kimse puan almadı.</p>';
     return `<div class="leaderboard">${list.map((p) => {
@@ -799,6 +814,7 @@
           <span class="badge">Soru ${s.questionIndex + 1}/${s.totalQuestions} — Sonuç</span>${doubleBadge(s.question)}
           <p class="question-text" style="margin-top:10px">${esc(s.question.text)}</p>
           <div class="options-grid">${renderOptions(s.question.options, { correctIndex: s.question.correctIndex })}</div>
+          ${renderDistribution(s.question.options, s.question.distribution, s.question.correctIndex)}
         </div>
         <h3>🏆 Sıralama</h3>
         ${renderLeaderboard(s.leaderboard)}
@@ -885,6 +901,7 @@
           <span class="badge">Soru ${s.questionIndex + 1}/${s.totalQuestions} — Sonuç</span>${doubleBadge(s.question)}
           <p class="question-text" style="margin-top:10px">${esc(s.question.text)}</p>
           <div class="options-grid">${renderOptions(s.question.options, { selected: s.myChoice, correctIndex: s.question.correctIndex })}</div>
+          ${renderDistribution(s.question.options, s.question.distribution, s.question.correctIndex)}
         </div>
         <div class="card center">
           <p>🎯 <strong>${s.correctGuessers}</strong> kişi senin seçtiğin cevabı buldu!</p>
@@ -969,6 +986,7 @@
         <div class="question-card">
           <p class="question-text">${esc(s.question.text)}</p>
           <div class="options-grid">${renderOptions(s.question.options, { selected: r.choiceIndex, correctIndex: s.question.correctIndex })}</div>
+          ${renderDistribution(s.question.options, s.question.distribution, s.question.correctIndex)}
           ${s.resultPhotoUrl ? `<img class="result-photo" src="${esc(s.resultPhotoUrl)}" alt="">` : ''}
         </div>
         <h3>🏆 İlk 5</h3>
