@@ -1,0 +1,308 @@
+/* Dogum Gunu Quiz - stil dosyasi. Mobil oncelikli, renkli ve eglenceli. */
+
+:root {
+  --pink: #ff5d9e;
+  --purple: #8b5cf6;
+  --yellow: #ffc83d;
+  --blue: #4fc3f7;
+  --green: #2ecc71;
+  --red: #ff5a5f;
+  --dark: #2b2140;
+  --bg: #221a35;
+  --card: #2f2650;
+  --card-light: #3a2f63;
+  --text: #f5f0ff;
+  --text-dim: #c6bce0;
+  --radius: 18px;
+  font-size: 16px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  background: radial-gradient(circle at 20% 0%, #3a2d63 0%, var(--bg) 55%);
+  color: var(--text);
+  font-family: 'Nunito', sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+h1, h2, h3, .title-font {
+  font-family: 'Baloo 2', cursive;
+}
+
+#app {
+  max-width: 520px;
+  margin: 0 auto;
+  min-height: 100vh;
+  padding: 20px 16px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+a { color: inherit; }
+
+.center { text-align: center; }
+.muted { color: var(--text-dim); font-size: 0.9em; }
+.stack { display: flex; flex-direction: column; gap: 12px; }
+.row { display: flex; gap: 10px; align-items: center; }
+.row.wrap { flex-wrap: wrap; }
+.spacer { flex: 1; }
+
+/* ---------- Butonlar ---------- */
+
+button, .btn {
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  font-size: 1rem;
+  border: none;
+  border-radius: 14px;
+  padding: 14px 18px;
+  cursor: pointer;
+  color: white;
+  background: var(--purple);
+  box-shadow: 0 4px 0 rgba(0,0,0,0.25);
+  transition: transform .08s ease, box-shadow .08s ease, opacity .15s ease;
+  -webkit-user-select: none;
+  user-select: none;
+}
+button:active, .btn:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 rgba(0,0,0,0.25);
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: 0 4px 0 rgba(0,0,0,0.15);
+}
+.btn-primary { background: linear-gradient(135deg, var(--pink), var(--purple)); }
+.btn-secondary { background: var(--card-light); }
+.btn-success { background: linear-gradient(135deg, #2ecc71, #27ae60); }
+.btn-danger { background: var(--red); }
+.btn-ghost { background: transparent; box-shadow: none; color: var(--text-dim); padding: 8px 10px; }
+.btn-ghost:active { transform: none; }
+.btn-block { width: 100%; }
+.btn-lg { font-size: 1.2rem; padding: 18px 20px; }
+.btn-icon { font-size: 1.4em; margin-right: 6px; }
+
+/* ---------- Kartlar / girişler ---------- */
+
+.card {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 18px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+}
+
+input[type=text], input[type=url], select, textarea {
+  width: 100%;
+  font-family: inherit;
+  font-size: 1rem;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 2px solid transparent;
+  background: var(--card-light);
+  color: var(--text);
+  outline: none;
+}
+input::placeholder, textarea::placeholder { color: var(--text-dim); }
+input:focus, select:focus, textarea:focus { border-color: var(--pink); }
+label { font-weight: 700; font-size: 0.9rem; color: var(--text-dim); display:block; margin-bottom: 4px; }
+
+.code-input {
+  text-transform: uppercase;
+  letter-spacing: 6px;
+  text-align: center;
+  font-size: 1.6rem;
+  font-weight: 800;
+  font-family: 'Baloo 2', cursive;
+}
+
+/* ---------- Ana sayfa ---------- */
+
+.hero { text-align: center; padding: 30px 0 10px; }
+.hero .emoji { font-size: 3.2rem; }
+.hero h1 { font-size: 1.8rem; margin: 6px 0 2px; }
+
+/* ---------- Oda kodu goster ---------- */
+
+.room-code-box {
+  background: linear-gradient(135deg, var(--pink), var(--purple));
+  border-radius: var(--radius);
+  padding: 22px;
+  text-align: center;
+}
+.room-code-box .code { font-family:'Baloo 2',cursive; font-size: 2.6rem; letter-spacing: 8px; font-weight: 800; }
+.link-row {
+  background: var(--card-light);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 0.82rem;
+  word-break: break-all;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.link-row .url { flex: 1; color: var(--text-dim); }
+
+/* ---------- Katilimci listesi ---------- */
+
+.participant-list { display: flex; flex-direction: column; gap: 8px; }
+.participant {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--card-light);
+  padding: 10px 14px;
+  border-radius: 12px;
+}
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
+.dot.off { background: #777; }
+.participant .score { margin-left: auto; font-weight: 800; color: var(--yellow); }
+.badge {
+  display: inline-block;
+  background: var(--yellow);
+  color: #3a2200;
+  font-weight: 800;
+  font-size: 0.72rem;
+  padding: 3px 8px;
+  border-radius: 20px;
+}
+
+/* ---------- Soru ekrani ---------- */
+
+.question-card {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 20px;
+}
+.question-text {
+  font-family: 'Baloo 2', cursive;
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.35;
+  margin: 0 0 14px;
+}
+.question-image { width: 100%; border-radius: 14px; margin-bottom: 14px; max-height: 220px; object-fit: cover; }
+
+.timer-ring {
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800;
+  font-family: 'Baloo 2', cursive;
+  background: conic-gradient(var(--yellow) var(--pct, 100%), rgba(255,255,255,0.12) 0);
+  flex-shrink: 0;
+}
+.timer-ring span { background: var(--bg); width: 44px; height: 44px; border-radius: 50%; display:flex; align-items:center; justify-content:center; }
+
+.options-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 10px;
+}
+@media (max-width: 380px) {
+  .options-grid { grid-template-columns: 1fr; }
+}
+.option-btn {
+  min-height: 78px;
+  font-size: 1.05rem;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  line-height: 1.25;
+}
+.option-btn .shape { font-size: 1.3em; }
+.opt-0 { background: linear-gradient(135deg, #ff5d9e, #ff8bc0); }
+.opt-1 { background: linear-gradient(135deg, #4fc3f7, #3aa9e0); }
+.opt-2 { background: linear-gradient(135deg, #ffc83d, #ffb000); color: #3a2200; }
+.opt-3 { background: linear-gradient(135deg, #8b5cf6, #6d3df2); }
+.option-btn.selected { outline: 4px solid white; }
+.option-btn.correct { outline: 4px solid var(--green); }
+.option-btn.wrong { outline: 4px solid var(--red); opacity: 0.6; }
+.option-btn.dim { opacity: 0.45; }
+.option-btn:disabled { cursor: default; }
+
+/* ---------- Sonuc / siralama ---------- */
+
+.result-banner {
+  text-align: center;
+  padding: 18px;
+  border-radius: var(--radius);
+  font-family: 'Baloo 2', cursive;
+  font-size: 1.3rem;
+  font-weight: 700;
+}
+.result-banner.correct { background: linear-gradient(135deg,#2ecc71,#27ae60); }
+.result-banner.wrong { background: linear-gradient(135deg,#ff5a5f,#d6383d); }
+.result-banner .points { display:block; font-size: 1rem; font-weight: 600; margin-top: 4px; opacity: 0.9; }
+
+.leaderboard { display: flex; flex-direction: column; gap: 8px; }
+.lb-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--card-light);
+  padding: 10px 12px;
+  border-radius: 12px;
+  transition: transform .3s ease;
+}
+.lb-rank {
+  width: 26px; text-align: center;
+  font-family: 'Baloo 2', cursive; font-weight: 800; color: var(--yellow);
+}
+.lb-name { flex: 1; font-weight: 700; }
+.lb-score { font-weight: 800; }
+.lb-delta { font-size: 0.78rem; font-weight: 800; }
+.lb-delta.up { color: var(--green); }
+.lb-delta.down { color: var(--red); }
+.lb-delta.same { color: var(--text-dim); }
+
+/* ---------- Podyum ---------- */
+
+.podium { display: flex; align-items: flex-end; justify-content: center; gap: 10px; margin: 20px 0; }
+.podium .step { text-align: center; }
+.podium .bar { border-radius: 10px 10px 0 0; display:flex; align-items:flex-start; justify-content:center; padding-top:10px; font-family:'Baloo 2',cursive; font-weight:800; font-size:1.4rem; }
+.podium .p1 .bar { height: 120px; background: linear-gradient(180deg,#ffd75e,#ffb000); }
+.podium .p2 .bar { height: 90px; background: linear-gradient(180deg,#d8d8ff,#a9a9d6); }
+.podium .p3 .bar { height: 70px; background: linear-gradient(180deg,#f0b27a,#c87f45); }
+.podium .name { font-weight: 800; margin-top: 6px; font-size: 0.9rem; }
+
+/* ---------- Quiz editoru ---------- */
+
+.question-editor-item { background: var(--card-light); border-radius: 14px; padding: 14px; }
+.question-editor-item + .question-editor-item { margin-top: 10px; }
+.opt-input-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.opt-input-row input { flex: 1; }
+.small-btn { padding: 8px 10px; font-size: 0.85rem; border-radius: 10px; }
+
+/* ---------- Durum mesajlari / animasyon ---------- */
+
+.pulse { animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
+
+.bounce { animation: bounce 1.2s ease-in-out infinite; display:inline-block; }
+@keyframes bounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+
+.progress-bar { height: 10px; border-radius: 10px; background: var(--card-light); overflow: hidden; }
+.progress-bar > div { height: 100%; background: linear-gradient(90deg,var(--pink),var(--purple)); transition: width .3s ease; }
+
+.toast {
+  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+  background: var(--red); color: white; padding: 12px 18px; border-radius: 12px;
+  font-weight: 700; box-shadow: 0 6px 20px rgba(0,0,0,0.4); z-index: 50; max-width: 90vw; text-align:center;
+}
+
+#confetti-layer { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 40; }
+.confetti-piece { position: absolute; top: -20px; border-radius: 2px; animation: fall linear forwards; }
+@keyframes fall {
+  to { transform: translateY(110vh) rotate(540deg); opacity: 0.3; }
+}
