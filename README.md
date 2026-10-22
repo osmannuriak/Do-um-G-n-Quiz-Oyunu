@@ -18,10 +18,12 @@ oyuncular tahmin ediyor, hızlı ve doğru tahmin eden daha çok puan kazanıyor
 
 - **Node.js + Express + Socket.IO** — tek sunucu, tek process, gerçek zamanlı
   iletişim için harici bir servise (Supabase vb.) ihtiyaç yok.
-- **Veri saklama**: Quiz'ler `data/quizzes.json` dosyasında kalıcı tutulur.
-  Devam eden oyun odaları ise sadece bellekte tutulur (bir parti/davet için
-  zaten yeterli; sunucu yeniden başlarsa quiz'ler kaybolmaz, o an açık olan
-  oyun sıfırlanır).
+- **Veri saklama**: Quiz'ler sunucuda **saklanmaz**; hazırlayanın
+  tarayıcısında (IndexedDB) durur ve her değişiklik otomatik kaydedilir.
+  Oda kurulurken quiz (görseller dahil) sunucuya gönderilir. Sunucu yeniden
+  başlasa bile quiz kaybolmaz; oyun sırasında yeniden başlarsa yöneticinin
+  tarayıcısı odayı aynı kodla ve son puanlarla geri kurar, herkes otomatik
+  yeniden bağlanır. Biten/hareketsiz odalar bellekten temizlenir.
 - **Arayüz**: Tek sayfa, saf HTML/CSS/JavaScript — derleme (build) adımı yok,
   bu yüzden her yere kolay deploy edilir.
 
@@ -39,9 +41,11 @@ telefonlardan katılmak için bilgisayarının yerel ağ IP'sini kullan (örn.
 ## Oyun nasıl kurulur
 
 1. Ana sayfadan **"Quiz Oluştur / Yönet"** → **"Yeni Quiz"**.
-2. Başlık yaz, soruları ekle (metin, 2-4 şık, isteğe bağlı görsel URL'si,
-   cevap süresi). Doğru cevabı burada seçmiyorsun.
-3. Quiz'i kaydet, listeden **"Oda Kur"** butonuna bas.
+2. Başlık yaz, soruları ekle (metin, 2-6 şık / sayı / sıralama, isteğe bağlı
+   görsel, cevap süresi). Doğru cevabı burada seçmiyorsun. Her şey otomatik
+   olarak bu tarayıcıya kaydedilir; yedek için **"Quizi İndir"**, başka
+   cihazda açmak için **"Quizi Yükle"** kullan.
+3. Listeden **"Oda Kur"** butonuna bas (quizi hazırladığın cihazdan).
 4. Açılan odada iki bağlantı görürsün:
    - **Oyuncu bağlantısı** → herkesle paylaş (WhatsApp grubu vb.).
    - **Doğum günü çocuğu bağlantısı** → SADECE doğum günü sahibine gönder.
@@ -72,10 +76,8 @@ bağlantı) sorunsuz destekleyen seçenek **Render.com**:
    > geçer ve ilk istekte birkaç saniye "uyanma" süresi olabilir. Partiden
    > 5-10 dakika önce siteyi bir kere açıp uyandırman yeterli.
 
-   > Veri kalıcılığı notu: Ücretsiz planda disk kalıcı değildir, yani
-   > `data/quizzes.json` sunucu yeniden deploy edildiğinde sıfırlanabilir.
-   > Parti günü quiz'i baştan girmek istemiyorsan, Render'da küçük bir
-   > "Persistent Disk" eklemen ya da parti öncesi quiz'i hazır tutman yeterli.
+   > Veri kalıcılığı: Ücretsiz planda disk kalıcı değildir; bu yüzden
+   > quiz'ler sunucuda değil, hazırlayanın tarayıcısında tutulur.
 
 Alternatifler (aynı mantıkla çalışır, hepsi Node.js + WebSocket destekler):
 **Railway.app**, **Fly.io**, **Glitch.com**. Hepsinde adım aynı: repoyu bağla,
@@ -89,7 +91,6 @@ public/
   index.html
   css/style.css        → mobil öncelikli, doğum günü temalı arayüz
   js/app.js             → istemci (tüm ekranlar, socket olayları)
-data/quizzes.json       → kaydedilen quiz'ler (otomatik oluşur)
 .env.example            → kullanılabilecek tek değişken: PORT
 ```
 
@@ -107,9 +108,16 @@ data/quizzes.json       → kaydedilen quiz'ler (otomatik oluşur)
 
 ## Ek özellikler
 
-- Soru görselleri ve sonuç fotoğrafları (doğru/yanlış) doğrudan cihazdan
-  seçilir; tarayıcıda otomatik küçültülüp (max ~900px, JPEG) kaydedilir,
-  ayrı bir dosya sunucusu gerekmez.
+- Soru görselleri ve sonuç görselleri (doğru/yanlış için 3'er tane) doğrudan
+  cihazdan seçilir; tarayıcıda küçültülüp (max 800px, WebP/JPEG) kaydedilir.
+  Oyunda görseller socket üzerinden değil, önbelleğe alınabilir URL ile sunulur
+  ve önceden yüklenir. Her sonuçta ilgili gruptan eşit olasılıkla rastgele biri
+  gösterilir.
+- Şıklar her soruda rastgele karıştırılır (Fisher-Yates); doğru cevap şık
+  kimliğiyle takip edilir.
+- Sesler: son 5 saniyede tik-tak, doğruda kısa başarı, yanlış/sürede kısa
+  başarısızlık sesi (Web Audio ile üretilir, dosya indirmez, üst üste binmez).
+- Ekran geçişleri kısa CSS (transform/opacity) animasyonlarıyla yapılır.
 - Soru süresi 10 ile 60 saniye arasında 5'er saniyelik adımlarla seçilebilir.
 - Her soruda 2 ile 6 arasında şık olabilir.
 - Lobide, oyun başlamadan önce oda tamamen iptal edilebilir (herkes

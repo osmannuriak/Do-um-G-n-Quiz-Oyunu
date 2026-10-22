@@ -38,10 +38,9 @@ h1, h2, h3, .title-font {
   margin: 0 auto;
   min-height: 100vh;
   padding: 20px 16px 40px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
 }
+.screen { display: flex; flex-direction: column; gap: 16px; }
+[hidden] { display: none !important; }
 
 a { color: inherit; }
 
@@ -198,6 +197,7 @@ label { font-weight: 700; font-size: 0.9rem; color: var(--text-dim); display:blo
   background: conic-gradient(var(--yellow) var(--pct, 100%), rgba(255,255,255,0.12) 0);
   flex-shrink: 0;
 }
+.timer-ring.urgent { background: conic-gradient(var(--red) var(--pct, 100%), rgba(255,255,255,0.12) 0); }
 .timer-ring span { background: var(--bg); width: 44px; height: 44px; border-radius: 50%; display:flex; align-items:center; justify-content:center; }
 
 .options-grid {
@@ -215,12 +215,11 @@ label { font-weight: 700; font-size: 0.9rem; color: var(--text-dim); display:blo
   text-align: left;
   display: flex;
   align-items: center;
-  gap: 10px;
   padding: 14px 16px;
   border-radius: 16px;
   line-height: 1.25;
+  word-break: break-word;
 }
-.option-btn .shape { font-size: 1.3em; }
 .opt-0 { background: linear-gradient(135deg, #ff5d9e, #ff8bc0); }
 .opt-1 { background: linear-gradient(135deg, #4fc3f7, #3aa9e0); }
 .opt-2 { background: linear-gradient(135deg, #ffc83d, #ffb000); color: #3a2200; }
@@ -328,14 +327,19 @@ label { font-weight: 700; font-size: 0.9rem; color: var(--text-dim); display:blo
 .badges-box h3 { text-align: center; margin-bottom: 10px; }
 .badges-list { display: flex; flex-direction: column; gap: 8px; }
 .badge-row {
-  display: flex; align-items: center; gap: 10px;
-  background: linear-gradient(135deg, #fff6e0, #ffe9c2);
-  border: 1px solid #f4d79a; border-radius: 12px;
-  padding: 10px 14px;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  background: #fffaf0;
+  border: 2px solid var(--yellow); border-radius: 14px;
+  padding: 12px 14px;
+  color: #1e1235;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.25);
 }
 .badge-emoji { font-size: 1.6rem; flex: 0 0 auto; }
-.badge-title { font-weight: 800; flex: 1; }
-.badge-name { font-weight: 700; color: #8a5a00; }
+.badge-title { font-weight: 800; flex: 1; color: #1e1235; }
+.badge-name {
+  font-weight: 800; color: #ffffff; background: #6a1b9a;
+  padding: 4px 10px; border-radius: 20px;
+}
 
 /* ---------- Quiz editoru ---------- */
 
@@ -361,6 +365,8 @@ label { font-weight: 700; font-size: 0.9rem; color: var(--text-dim); display:blo
   background: var(--red); color: white; padding: 12px 18px; border-radius: 12px;
   font-weight: 700; box-shadow: 0 6px 20px rgba(0,0,0,0.4); z-index: 50; max-width: 90vw; text-align:center;
 }
+.toast.ok { background: #1f9d55; }
+.toast.info { background: var(--purple); }
 
 /* ---------- Gorsel yukleme / onizleme ---------- */
 
@@ -403,3 +409,62 @@ label { font-weight: 700; font-size: 0.9rem; color: var(--text-dim); display:blo
 @keyframes fall {
   to { transform: translateY(110vh) rotate(540deg); opacity: 0.3; }
 }
+
+/* ---------- Ekran gecisleri (sadece transform/opacity; layout'u zorlamaz) ---------- */
+
+.screen-enter { animation: screenIn 300ms cubic-bezier(.2,.75,.3,1) both; }
+@keyframes screenIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+.screen-enter .result-banner { animation: popIn 360ms cubic-bezier(.2,.9,.3,1.2) both; }
+@keyframes popIn {
+  from { opacity: 0; transform: scale(.92); }
+  to { opacity: 1; transform: none; }
+}
+.screen-enter .dist-bar { transform-origin: left center; animation: growX 450ms 120ms ease-out both; }
+@keyframes growX { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.screen-enter .lb-row,
+.screen-enter .badge-row,
+.screen-enter .guess-row { animation: rowIn 280ms ease-out both; }
+.screen-enter .lb-row:nth-child(2), .screen-enter .badge-row:nth-child(2), .screen-enter .guess-row:nth-child(2) { animation-delay: 40ms; }
+.screen-enter .lb-row:nth-child(3), .screen-enter .badge-row:nth-child(3), .screen-enter .guess-row:nth-child(3) { animation-delay: 80ms; }
+.screen-enter .lb-row:nth-child(4), .screen-enter .guess-row:nth-child(4) { animation-delay: 120ms; }
+.screen-enter .lb-row:nth-child(n+5), .screen-enter .guess-row:nth-child(n+5) { animation-delay: 160ms; }
+@keyframes rowIn {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: none; }
+}
+.screen-enter .result-photo { animation: screenIn 350ms 80ms ease-out both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .screen-enter, .screen-enter * { animation: none !important; }
+}
+
+/* ---------- Baglanti durumu ---------- */
+
+#conn-banner {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 60;
+  background: #b45309; color: #fff; font-weight: 700; font-size: 0.9rem;
+  text-align: center; padding: 8px 12px;
+  transform: translateY(-100%); transition: transform .25s ease;
+}
+#conn-banner.show { transform: none; }
+
+/* ---------- Kucuk yardimcilar ---------- */
+
+.badge-double { background: var(--pink); color: #fff; }
+.error-text { color: #ff9b9e; font-weight: 700; margin: 0; }
+.warn-text { background: #4a3500; color: #ffe08a; padding: 10px 12px; border-radius: 12px; margin: 0; font-weight: 700; }
+.answer-reveal { text-align: center; margin: 8px 0; }
+.autosave { font-size: 0.8rem; color: var(--text-dim); }
+.file-btn { display: flex; align-items: center; justify-content: center; text-align: center; }
+.file-input {
+  width: 100%; background: var(--card-light); border-radius: 10px; padding: 10px;
+  color: var(--text-dim); font-size: 0.85rem; margin-top: 6px;
+}
+.photo-grid { display: flex; flex-wrap: wrap; gap: 12px; }
+.photo-grid .image-preview-wrap img { width: 96px; height: 96px; object-fit: cover; }
+.check-row { margin-top: 10px; gap: 8px; cursor: pointer; color: var(--text); }
+.check-row input { width: 20px; height: 20px; }
+.quiz-card .row { gap: 8px; }
