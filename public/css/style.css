@@ -300,14 +300,30 @@ label { font-weight: 700; font-size: 0.9rem; color: var(--text-dim); display:blo
 
 /* ---------- Siralama sorusu ---------- */
 
-.rank-list { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.rank-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; counter-reset: rank; }
 .rank-row {
   display: flex; align-items: center; gap: 10px;
-  background: var(--card-light); border-radius: 12px; padding: 10px 12px;
+  background: var(--card-light); border-radius: 12px; padding: 12px;
+  border: 2px solid transparent;
+  -webkit-user-select: none; user-select: none;
 }
+/* Surukleme sirasinda sayfa kaymasin: kutular dokunmayi kendisi isler */
+.rank-list:not(.rank-locked) .rank-row { touch-action: none; cursor: grab; }
 .rank-pos { flex: 0 0 24px; font-weight: 800; color: var(--yellow); text-align: center; }
-.rank-text { flex: 1; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+.rank-pos::before { counter-increment: rank; content: counter(rank) "."; }
+.rank-text { flex: 1; font-weight: 700; }
+.rank-handle { color: var(--text-dim); font-size: 1.3rem; line-height: 1; padding: 0 4px; }
 .rank-arrows { display: flex; gap: 4px; }
+.rank-hint { margin: 6px 0 0; font-size: 0.8rem; }
+/* Birakilacagi yer: kesikli cerceveli bos yuva */
+.rank-ghost { opacity: 0.35; border: 2px dashed var(--yellow); background: transparent; }
+.rank-chosen { border-color: var(--yellow); }
+/* Parmagi takip eden kutu */
+.rank-drag, .sortable-fallback {
+  opacity: 0.95 !important; transform: scale(1.03);
+  box-shadow: 0 12px 28px rgba(0,0,0,0.45); border-color: var(--yellow); cursor: grabbing;
+}
+body.sortable-dragging, .sortable-dragging * { cursor: grabbing; }
 
 .order-list { margin: 10px 0; padding-left: 24px; }
 .order-list li { font-weight: 700; padding: 2px 0; }
@@ -468,3 +484,18 @@ label { font-weight: 700; font-size: 0.9rem; color: var(--text-dim); display:blo
 .check-row { margin-top: 10px; gap: 8px; cursor: pointer; color: var(--text); }
 .check-row input { width: 20px; height: 20px; }
 .quiz-card .row { gap: 8px; }
+
+/* ---------- Dogru cevap ekrani / soru sonucu ---------- */
+
+.reveal-box {
+  background: linear-gradient(135deg, #1f9d55, #2ecc71);
+  border-radius: 16px; padding: 14px 16px; text-align: center; margin: 4px 0 12px;
+}
+.reveal-label { font-weight: 800; font-size: 0.85rem; letter-spacing: .5px; text-transform: uppercase; opacity: .9; }
+.reveal-value { font-family: 'Baloo 2', cursive; font-size: 1.7rem; font-weight: 800; line-height: 1.2; margin-top: 2px; word-break: break-word; }
+.reveal-box .order-list { text-align: left; display: inline-block; margin: 8px 0 0; font-size: 1.1rem; }
+.rank-card-label { font-weight: 800; color: var(--text-dim); font-size: 0.9rem; }
+.rank-card-value { font-family: 'Baloo 2', cursive; font-size: 2.6rem; font-weight: 800; color: var(--yellow); line-height: 1.1; }
+.result-detail { font-size: 1.05rem; }
+/* Parmagi takip eden kopya listenin disinda; sira numarasi yanlis gorunmesin */
+.sortable-fallback .rank-pos { visibility: hidden; }

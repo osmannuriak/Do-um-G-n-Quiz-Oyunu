@@ -172,7 +172,7 @@ function createRoom(clean, ids = {}) {
     adminToken: ids.adminToken || nanoid(16),
     birthdayToken: ids.birthdayToken || nanoid(16),
     adminSocketId: null,
-    status: 'lobby', // lobby | birthday_turn | question_open | question_results | paused | finished
+    status: 'lobby', // lobby | birthday_turn | question_open | question_results | answer_reveal | leaderboard | paused | podium | finished
     questionIndex: -1,
     birthday: null, // { id, name, socketId, connected }
     players: new Map(),
@@ -212,7 +212,9 @@ function touch(room) {
 function newPlayer(id, name) {
   return {
     id, name, socketId: null, connected: false,
-    score: 0, correctCount: 0, answeredCount: 0, correctResponseMsSum: 0, lastResult: null,
+    score: 0, // 2 ondalik basamakli
+    totalTimeMs: 0, // esitlikte siralama icin: cevap suresi toplami (cevapsiz soru = tam sure)
+    correctCount: 0, answeredCount: 0, correctResponseMsSum: 0, lastResult: null,
   };
 }
 
@@ -225,10 +227,15 @@ function activePlayers(room) {
   return Array.from(room.players.values());
 }
 
+// Siralama: puan (yuksek once) -> toplam cevap suresi (kisa once) -> isim.
 function rankedPlayers(room) {
   return activePlayers(room)
     .slice()
-    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, 'tr'));
+    .sort((a, b) => b.score - a.score || a.totalTimeMs - b.totalTimeMs || a.name.localeCompare(b.name, 'tr'));
+}
+
+function rankOf(room, playerId) {
+  return rankedPlayers(room).findIndex((p) => p.id === playerId) + 1;
 }
 
 function leaderboardPayload(room, limit) {
@@ -253,7 +260,7 @@ function computeBadges(room) {
   const ranked = rankedPlayers(room);
   const totalQuestions = room.questions.length;
 
-  // En Hizli Parmaklar: dogru cevaplarinin ortalama suresi en kisa olan.
+  // En Hizli Parmaklar: dogru/tam isabetli cevaplarinin ortalama suresi en kisa olan.
   let fastest = null;
   let fastestAvg = Infinity;
   for (const p of ranked) {
@@ -280,8 +287,7 @@ function computeBadges(room) {
   if (totalQuestions > 0) {
     const finishers = ranked.filter((p) => p.answeredCount >= totalQuestions);
     if (finishers.length > 0) {
-      const persistent = finishers[finishers.length - 1]; // ranked azalan puanli, sonuncu en dusuk
-      badges.push({ emoji: '🐢', title: 'Pes Etmeyen', name: persistent.name });
+      badges.push({ emoji: '🐢', title: 'Pes Etmeyen', name: finishers[finishers.length - 1].name });
     }
   }
   return badges;
@@ -298,43 +304,62 @@ function answerDistribution(room) {
   return cq.options.map((o) => counts.get(o.id));
 }
 
-function rankingDistance(correctOrder, guessOrder) {
-  const pos = new Map(guessOrder.map((id, i) => [id, i]));
-  let distance = 0;
-  correctOrder.forEach((id, i) => { distance += Math.abs(i - pos.get(id)); });
-  return distance;
+// ---------------------------------------------------------------------------
+// Puanlama (2 ondalik basamak; sure sunucuda, soru acildigi andan ms hassasiyetle)
+// ---------------------------------------------------------------------------
+
+function round2(x) {
+  return Math.round(x * 100) / 100;
 }
 
-function answerDistance(cq, ans) {
-  if (cq.type === 'numeric') return Math.abs(ans.value - cq.birthdayValue);
-  return rankingDistance(cq.birthdayOrder, ans.order);
+// Siralamada ters sirali cift sayisi (Kendall tau mesafesi).
+function discordantPairs(correctOrder, guessOrder) {
+  const truePos = new Map(correctOrder.map((id, i) => [id, i]));
+  const seq = guessOrder.map((id) => truePos.get(id));
+  let count = 0;
+  for (let i = 0; i < seq.length; i++) {
+    for (let j = i + 1; j < seq.length; j++) {
+      if (seq[i] > seq[j]) count++;
+    }
+  }
+  return count;
 }
 
-// Sayi/siralama sorularinda, en yakindan en uzaga (esitlikte hizli olan once) sirali tahminler.
-function closestAnswers(room) {
-  const cq = room.currentQuestion;
-  return Array.from(cq.answers.entries())
-    .map(([playerId, ans]) => ({ playerId, ans, distance: answerDistance(cq, ans) }))
-    .sort((a, b) => a.distance - b.distance || a.ans.answeredAt - b.ans.answeredAt);
+// Dogru yerinde olmayan kutu sayisi (oyuncuya gosterilen "fark").
+function misplacedCount(correctOrder, guessOrder) {
+  return guessOrder.filter((id, i) => id !== correctOrder[i]).length;
 }
 
-function guessesPayload(room) {
-  const cq = room.currentQuestion;
-  return closestAnswers(room)
-    .filter((a) => room.players.has(a.playerId))
-    .map((a) => ({
-      name: room.players.get(a.playerId).name,
-      value: cq.type === 'numeric' ? a.ans.value : undefined,
-      order: cq.type === 'ranking' ? a.ans.order : undefined,
-      distance: a.distance,
-    }));
-}
+// Bir cevabin puanini ve sonuc bilgisini hesaplar. t = cevap suresi (sn), T = soru suresi (sn).
+function scoreAnswer(cq, ans) {
+  const T = cq.duration;
+  const t = Math.min(T, Math.max(0, ans.elapsedMs / 1000));
+  const speed = 1 - t / T;
+  const multiplier = cq.doublePoints ? 2 : 1;
 
-function computePoints(answeredAt, openAt, durationSeconds, doublePoints) {
-  const elapsedMs = Math.max(0, answeredAt - openAt);
-  const ratio = Math.min(1, elapsedMs / (durationSeconds * 1000));
-  const base = Math.round(1000 - ratio * 500); // aninda dogru: 1000, sure sonunda dogru: 500
-  return doublePoints ? base * 2 : base;
+  if (cq.type === 'choice') {
+    const correct = ans.optionId === cq.birthdayOptionId;
+    const points = correct ? 1000 * (1 - 0.5 * (t / T)) : 0;
+    return { exact: correct, points: round2(points * multiplier), extra: { optionId: ans.optionId } };
+  }
+  if (cq.type === 'numeric') {
+    const correctValue = cq.birthdayValue;
+    const diff = Math.abs(ans.value - correctValue);
+    const accuracy = Math.max(0, 1 - diff / Math.max(Math.abs(correctValue), 1));
+    const points = 1000 * accuracy * (0.75 + 0.25 * speed);
+    return { exact: diff === 0, points: round2(points * multiplier), extra: { value: ans.value, diff: round2(diff) } };
+  }
+  // ranking
+  const n = cq.birthdayOrder.length;
+  const totalPairs = (n * (n - 1)) / 2;
+  const wrongPairs = discordantPairs(cq.birthdayOrder, ans.order);
+  const accuracy = totalPairs > 0 ? 1 - wrongPairs / totalPairs : 1;
+  const points = 1000 * accuracy * (0.75 + 0.25 * speed);
+  return {
+    exact: wrongPairs === 0,
+    points: round2(points * multiplier),
+    extra: { order: ans.order, misplaced: misplacedCount(cq.birthdayOrder, ans.order) },
+  };
 }
 
 function clearQuestionTimer(room) {
@@ -346,13 +371,18 @@ function clearQuestionTimer(room) {
 
 // ---------------------------------------------------------------------------
 // Oyun akisi
+//   lobby -> birthday_turn (yonetici) -> question_open (OTOMATIK: dogum gunu cocugu cevaplayinca)
+//   -> question_results (OTOMATIK: sure bitince / herkes cevaplayinca) -> answer_reveal (yonetici)
+//   -> leaderboard (yonetici) -> sonraki soru ya da podium (yonetici) -> finished: tam liste (yonetici)
 // ---------------------------------------------------------------------------
+
+const ENDED = new Set(['podium', 'finished']);
 
 function startQuestion(room) {
   clearQuestionTimer(room);
   room.questionIndex += 1;
   if (room.questionIndex >= room.questions.length) {
-    finishGame(room);
+    showPodium(room);
     return;
   }
   const q = currentQuestionData(room);
@@ -363,10 +393,11 @@ function startQuestion(room) {
     birthdayOptionId: null, // coktan secmeli
     birthdayValue: null, // sayi tahmini
     birthdayOrder: null, // siralama (sik id'leri)
-    openAt: null,
+    openAt: null, // duvar saati (kalan sureyi istemciye bildirmek icin)
+    openMono: null, // monoton saat (cevap suresini olcmek icin)
     duration: q.timeLimit,
     doublePoints: !!q.doublePoints,
-    answers: new Map(), // playerId -> { optionId | value | order, answeredAt }
+    answers: new Map(), // playerId -> { optionId | value | order, elapsedMs }
     timer: null,
   };
   room.status = 'birthday_turn';
@@ -377,8 +408,9 @@ function startQuestion(room) {
 function openQuestionForAnswers(room) {
   const cq = room.currentQuestion;
   cq.openAt = Date.now();
+  cq.openMono = performance.now();
   room.status = 'question_open';
-  cq.timer = setTimeout(() => finalizeQuestion(room), cq.duration * 1000);
+  cq.timer = setTimeout(() => finalizeQuestion(room), cq.duration * 1000 + 150); // kucuk ag payi
   touch(room);
   syncRoom(room);
 }
@@ -447,10 +479,11 @@ function acceptAnswer(room, playerId, build) {
   const player = room.players.get(playerId);
   const cq = room.currentQuestion;
   if (!player || !cq || cq.answers.has(playerId)) return;
-  if (Date.now() > cq.openAt + cq.duration * 1000) return; // sure doldu
+  const elapsedMs = performance.now() - cq.openMono;
+  if (elapsedMs > cq.duration * 1000 + 150) return; // sure doldu
   const ans = build(cq);
   if (!ans) return;
-  ans.answeredAt = Date.now();
+  ans.elapsedMs = Math.max(0, elapsedMs);
   cq.answers.set(playerId, ans);
   touch(room);
 
@@ -464,69 +497,31 @@ function acceptAnswer(room, playerId, build) {
   }
 }
 
-function finalizeChoice(room) {
-  const cq = room.currentQuestion;
-  for (const player of room.players.values()) {
-    const ans = cq.answers.get(player.id);
-    if (!ans) {
-      player.lastResult = { optionId: null, correct: false, won: false, points: 0 };
-      continue;
-    }
-    const correct = ans.optionId === cq.birthdayOptionId;
-    const points = correct ? computePoints(ans.answeredAt, cq.openAt, cq.duration, cq.doublePoints) : 0;
-    player.score += points;
-    if (correct) {
-      player.correctCount += 1;
-      player.correctResponseMsSum += Math.max(0, ans.answeredAt - cq.openAt);
-    }
-    player.lastResult = { optionId: ans.optionId, correct, won: correct, points };
-  }
-}
-
-// Sayi tahmini / siralama: en yakin en yuksek puani alir (1000), en uzak 500;
-// esit uzaklikta hizli cevaplayan one gecer.
-function finalizeClosest(room) {
-  const cq = room.currentQuestion;
-  const sorted = closestAnswers(room);
-  const n = sorted.length;
-  for (const player of room.players.values()) {
-    player.lastResult = { value: null, order: null, distance: null, rank: null, correct: false, won: false, points: 0 };
-  }
-  sorted.forEach((a, i) => {
-    const player = room.players.get(a.playerId);
-    if (!player) return;
-    const ratio = n > 1 ? i / (n - 1) : 0;
-    let points = Math.round(1000 - ratio * 500);
-    if (cq.doublePoints) points *= 2;
-    player.score += points;
-    const exact = a.distance === 0;
-    if (exact) {
-      player.correctCount += 1;
-      player.correctResponseMsSum += Math.max(0, a.ans.answeredAt - cq.openAt);
-    }
-    player.lastResult = {
-      value: cq.type === 'numeric' ? a.ans.value : null,
-      order: cq.type === 'ranking' ? a.ans.order : null,
-      distance: a.distance,
-      rank: i + 1,
-      correct: exact,
-      won: i === 0,
-      points,
-    };
-  });
-}
-
 function finalizeQuestion(room) {
   if (room.status !== 'question_open') return;
   clearQuestionTimer(room);
   room.previousRanking = rankedPlayers(room).map((p) => p.id);
   const cq = room.currentQuestion;
-  if (cq.type === 'choice') finalizeChoice(room);
-  else finalizeClosest(room);
+  const durationMs = cq.duration * 1000;
 
   for (const player of room.players.values()) {
-    if (cq.answers.has(player.id)) player.answeredCount += 1;
-    // Sonuca gore ilgili gruptan esit olasilikla rastgele bir gorsel (yoksa bos).
+    const ans = cq.answers.get(player.id);
+    if (!ans) {
+      player.totalTimeMs += durationMs;
+      player.lastResult = { answered: false, exact: false, won: false, points: 0 };
+    } else {
+      const res = scoreAnswer(cq, ans);
+      const elapsed = Math.min(durationMs, ans.elapsedMs);
+      player.score = round2(player.score + res.points);
+      player.totalTimeMs += elapsed;
+      player.answeredCount += 1;
+      if (res.exact) {
+        player.correctCount += 1;
+        player.correctResponseMsSum += elapsed;
+      }
+      player.lastResult = { answered: true, exact: res.exact, won: res.exact, points: res.points, ...res.extra };
+    }
+    // "Dogru" gorseli sadece dogru / tam isabet yapana; esit olasilikla rastgele.
     player.lastResult.photoUrl = pickRandom(player.lastResult.won ? room.correctPhotos : room.wrongPhotos);
   }
   room.status = 'question_results';
@@ -534,9 +529,25 @@ function finalizeQuestion(room) {
   syncRoom(room);
 }
 
-function finishGame(room) {
+// Yoneticinin "ileri" butonu: duruma gore bir sonraki ekrana gecer.
+function advance(room) {
+  switch (room.status) {
+    case 'question_results': room.status = 'answer_reveal'; break;
+    case 'answer_reveal': room.status = 'leaderboard'; break;
+    case 'leaderboard':
+    case 'paused':
+      startQuestion(room);
+      return;
+    case 'podium': room.status = 'finished'; break;
+    default: return;
+  }
+  touch(room);
+  syncRoom(room);
+}
+
+function showPodium(room) {
   clearQuestionTimer(room);
-  room.status = 'finished';
+  room.status = 'podium';
   room.currentQuestion = null;
   room.finishedAt = Date.now();
   touch(room);
@@ -566,7 +577,7 @@ function baseState(room) {
   return state;
 }
 
-function questionPayload(room, { timer = false, results = false } = {}) {
+function questionPayload(room, { timer = false, reveal = false } = {}) {
   const q = currentQuestionData(room);
   const cq = room.currentQuestion;
   if (!q || !cq) return null;
@@ -583,19 +594,19 @@ function questionPayload(room, { timer = false, results = false } = {}) {
     // Istemci saatine guvenmemek icin kalan sure gonderilir.
     out.remainingMs = Math.max(0, cq.openAt + cq.duration * 1000 - Date.now());
   }
-  if (results) {
-    if (q.type === 'numeric') {
-      out.correctValue = cq.birthdayValue;
-      out.guesses = guessesPayload(room);
-    } else if (q.type === 'ranking') {
-      out.correctOrder = cq.birthdayOrder;
-      out.guesses = guessesPayload(room);
-    } else {
+  if (reveal) {
+    if (q.type === 'numeric') out.correctValue = cq.birthdayValue;
+    else if (q.type === 'ranking') out.correctOrder = cq.birthdayOrder;
+    else {
       out.correctId = cq.birthdayOptionId;
       out.distribution = answerDistribution(room);
     }
   }
   return out;
+}
+
+function exactCount(room) {
+  return activePlayers(room).filter((p) => p.lastResult && p.lastResult.exact).length;
 }
 
 function stateForAdmin(room) {
@@ -606,19 +617,22 @@ function stateForAdmin(room) {
   // Istatistikler yoneticiye gider: sunucu yeniden baslarsa puanlar bunlarla geri kurulur.
   state.players = activePlayers(room)
     .map((p) => ({
-      id: p.id, name: p.name, connected: p.connected, score: p.score,
+      id: p.id, name: p.name, connected: p.connected, score: p.score, totalTimeMs: p.totalTimeMs,
       correctCount: p.correctCount, answeredCount: p.answeredCount, correctResponseMsSum: p.correctResponseMsSum,
     }))
     .sort((a, b) => a.name.localeCompare(b.name, 'tr'));
   state.answeredCount = room.currentQuestion ? room.currentQuestion.answers.size : 0;
 
-  if (room.status === 'question_open') state.question = questionPayload(room, { timer: true });
-  if (room.status === 'question_results') {
-    state.question = questionPayload(room, { results: true });
-    state.leaderboard = leaderboardPayload(room);
+  const s = room.status;
+  if (s === 'question_open') state.question = questionPayload(room, { timer: true });
+  if (s === 'question_results') {
+    state.question = questionPayload(room);
+    state.exactCount = exactCount(room);
   }
-  if (room.status === 'paused') state.leaderboard = leaderboardPayload(room);
-  if (room.status === 'finished') {
+  if (s === 'answer_reveal') state.question = questionPayload(room, { reveal: true });
+  if (s === 'leaderboard' || s === 'paused') state.leaderboard = leaderboardPayload(room, 5);
+  if (s === 'podium') state.leaderboard = leaderboardPayload(room, 3);
+  if (s === 'finished') {
     state.leaderboard = leaderboardPayload(room);
     state.badges = computeBadges(room);
   }
@@ -629,20 +643,23 @@ function stateForBirthday(room) {
   const state = baseState(room);
   state.role = 'birthday';
   const cq = room.currentQuestion;
+  const s = room.status;
 
-  if (room.status === 'birthday_turn') {
+  if (s === 'birthday_turn') {
     state.question = questionPayload(room);
-  } else if (room.status === 'question_open') {
-    state.question = questionPayload(room);
+  } else if (s === 'question_open') {
     state.answeredCount = cq.answers.size;
     state.playerTotal = activePlayers(room).filter((p) => p.connected).length;
-  } else if (room.status === 'question_results') {
-    state.question = questionPayload(room, { results: true });
-    state.correctGuessers = activePlayers(room).filter((p) => p.lastResult && p.lastResult.correct).length;
+  } else if (s === 'question_results') {
+    state.question = questionPayload(room);
+    state.exactCount = exactCount(room);
+  } else if (s === 'answer_reveal') {
+    state.question = questionPayload(room, { reveal: true });
+  } else if (s === 'leaderboard' || s === 'paused') {
     state.leaderboard = leaderboardPayload(room, 5);
-  } else if (room.status === 'paused') {
-    state.leaderboard = leaderboardPayload(room, 5);
-  } else if (room.status === 'finished') {
+  } else if (s === 'podium') {
+    state.leaderboard = leaderboardPayload(room, 3);
+  } else if (s === 'finished') {
     state.leaderboard = leaderboardPayload(room);
     state.badges = computeBadges(room);
   }
@@ -654,8 +671,13 @@ function stateForPlayer(room, playerId) {
   state.role = 'player';
   const player = room.players.get(playerId);
   const cq = room.currentQuestion;
+  const s = room.status;
+  if (player) {
+    state.myScore = player.score;
+    if (s !== 'lobby') state.myRank = rankOf(room, playerId);
+  }
 
-  if (room.status === 'question_open') {
+  if (s === 'question_open') {
     // Dogum gunu sahibinin sectigi cevap burada ASLA gonderilmez.
     const mine = cq.answers.get(playerId);
     state.question = questionPayload(room, { timer: true });
@@ -663,18 +685,21 @@ function stateForPlayer(room, playerId) {
     state.myChoice = mine ? mine.optionId : null;
     state.myValue = mine ? mine.value : null;
     state.myOrder = mine ? mine.order : null;
-  } else if (room.status === 'question_results') {
-    state.question = questionPayload(room, { results: true });
+  } else if (s === 'question_results') {
+    // Dogru cevap henuz gosterilmez; sadece kendi sonucu (gorsel + puan + sira).
+    const q = currentQuestionData(room);
+    state.question = { text: q.text, type: q.type, unit: q.unit || '', doublePoints: q.doublePoints };
     state.myResult = player ? player.lastResult : null;
-    state.myScore = player ? player.score : 0;
-    state.leaderboard = leaderboardPayload(room, 5);
     state.resultPhotoUrl = player && player.lastResult ? player.lastResult.photoUrl : '';
-  } else if (room.status === 'paused') {
-    state.myScore = player ? player.score : 0;
+  } else if (s === 'answer_reveal') {
+    state.question = questionPayload(room, { reveal: true });
+    state.myChoice = player && player.lastResult ? player.lastResult.optionId || null : null;
+  } else if (s === 'leaderboard' || s === 'paused') {
     state.leaderboard = leaderboardPayload(room, 5);
-  } else if (room.status === 'finished') {
+  } else if (s === 'podium') {
+    state.leaderboard = leaderboardPayload(room, 3);
+  } else if (s === 'finished') {
     state.leaderboard = leaderboardPayload(room);
-    state.myScore = player ? player.score : 0;
     state.myCorrectCount = player ? player.correctCount : 0;
     state.badges = computeBadges(room);
   }
@@ -764,7 +789,8 @@ function applySnapshot(room, snap) {
   for (const p of players) {
     if (!p || !p.id) continue;
     const player = newPlayer(String(p.id).slice(0, 20), cleanName(p.name, 24, 'Oyuncu'));
-    player.score = Math.round(num(p.score));
+    player.score = Math.round(num(p.score) * 100) / 100;
+    player.totalTimeMs = num(p.totalTimeMs);
     player.correctCount = Math.round(num(p.correctCount));
     player.answeredCount = Math.round(num(p.answeredCount));
     player.correctResponseMsSum = num(p.correctResponseMsSum);
@@ -772,15 +798,16 @@ function applySnapshot(room, snap) {
   }
   const total = room.questions.length;
   const qi = Number.isInteger(snap.questionIndex) ? snap.questionIndex : -1;
-  if (snap.status === 'finished') {
-    room.status = 'finished';
+  if (ENDED.has(snap.status)) {
+    room.status = snap.status;
     room.questionIndex = total - 1;
     room.finishedAt = Date.now();
   } else if (snap.status === 'lobby' || qi < 0) {
     room.status = 'lobby';
   } else {
-    // Yarim kalan soru tekrar sorulur; bitmis son sorudan devam edilir.
-    const lastDone = snap.status === 'question_results' || snap.status === 'paused' ? qi : qi - 1;
+    // Yarim kalan soru tekrar sorulur; puani verilmis son sorudan devam edilir.
+    const scored = ['question_results', 'answer_reveal', 'leaderboard', 'paused'];
+    const lastDone = scored.includes(snap.status) ? qi : qi - 1;
     room.questionIndex = Math.max(-1, Math.min(lastDone, total - 1));
     room.status = 'paused';
   }
@@ -863,18 +890,22 @@ io.on('connection', (socket) => {
     startQuestion(room);
   });
 
-  handle('admin:next', () => {
+  // Yoneticinin tek "ileri" butonu. "from": butona basildigi andaki ekran; cift dokunma
+  // ya da gecikmeli mesaj yuzunden iki ekran birden atlanmasin.
+  handle('admin:next', ({ from }) => {
     const room = roomOf(socket, 'admin');
     if (!room) return;
-    if (room.status !== 'question_results' && room.status !== 'paused') return;
-    if (!room.birthday) return err(socket, 'Önce doğum günü çocuğunun katılması gerekiyor.');
-    startQuestion(room);
+    if (from && from !== room.status) return;
+    const startsQuestion = (room.status === 'leaderboard' || room.status === 'paused') &&
+      room.questionIndex + 1 < room.questions.length;
+    if (startsQuestion && !room.birthday) return err(socket, 'Önce doğum günü çocuğunun katılması gerekiyor.');
+    advance(room);
   });
 
   handle('admin:end', () => {
     const room = roomOf(socket, 'admin');
-    if (!room || room.status === 'finished') return;
-    finishGame(room);
+    if (!room || ENDED.has(room.status) || room.status === 'lobby') return;
+    showPodium(room);
   });
 
   handle('admin:cancelRoom', () => {
@@ -993,7 +1024,7 @@ io.on('connection', (socket) => {
 setInterval(() => {
   const now = Date.now();
   for (const room of Array.from(rooms.values())) {
-    const finishedLongAgo = room.status === 'finished' && now - room.finishedAt > FINISHED_ROOM_TTL;
+    const finishedLongAgo = ENDED.has(room.status) && now - room.finishedAt > FINISHED_ROOM_TTL;
     const idle = now - room.lastActivity > IDLE_ROOM_TTL;
     if (finishedLongAgo || idle) deleteRoom(room);
   }

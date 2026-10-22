@@ -49,8 +49,13 @@ telefonlardan katılmak için bilgisayarının yerel ağ IP'sini kullan (örn.
 4. Açılan odada iki bağlantı görürsün:
    - **Oyuncu bağlantısı** → herkesle paylaş (WhatsApp grubu vb.).
    - **Doğum günü çocuğu bağlantısı** → SADECE doğum günü sahibine gönder.
-5. Herkes katılınca **"Oyunu Başlat"**a bas. Her sorudan sonra
-   **"Sonraki Soru"** ile devam et.
+5. Herkes katılınca **"Oyunu Başlat"**a bas. Her soru şöyle ilerler:
+   1. Yönetici yeni soruya geçer → soru önce doğum günü çocuğuna gelir.
+   2. Doğum günü çocuğu cevaplayınca soru herkese **otomatik** açılır, süre başlar.
+   3. Süre bitince ya da herkes cevaplayınca **otomatik** sonuç ekranı: doğru/yanlış
+      görseli + o sorudan alınan puan + güncel sıralama.
+   4. Yönetici → doğru cevap ekranı. 5. Yönetici → ilk 5. 6. Yönetici → sonraki soru.
+   Son sorudan sonra: podyum (ilk 3) → yönetici geçince tüm sıralama.
 
 ## 🌍 Herkesin telefonundan online oynanabilmesi için (deploy)
 
@@ -105,6 +110,19 @@ public/
   biri çalamaz.
 - Sayfa yenilenince oyuncu/doğum günü sahibi/yönetici kaldığı yerden devam
   eder (localStorage ile kimlik hatırlanır).
+
+## Puanlama (2 ondalık basamak)
+
+Cevap süresi sunucuda, soru açıldığı andan milisaniye hassasiyetle ölçülür
+(t = cevap süresi, T = soru süresi). Toplam puan eşitse toplam cevap süresi
+kısa olan üstte olur. Cevap vermeyen 0 puan alır; çift puanlı sorularda 2x.
+
+- **Çoktan seçmeli:** doğruysa `1000 × (1 − 0,5 × t/T)`, yanlışsa 0.
+- **Sayı tahmini:** `A = max(0, 1 − |tahmin − doğru| / max(|doğru|, 1))`,
+  puan `1000 × A × (0,75 + 0,25 × (1 − t/T))`.
+- **Sıralama:** `A = 1 − ters sıralı çift / toplam çift` (Kendall tau),
+  puan `1000 × A × (0,75 + 0,25 × (1 − t/T))`. Sıralama kutuları
+  sürükle-bırak ile (telefonda dokunarak) dizilir.
 
 ## Ek özellikler
 

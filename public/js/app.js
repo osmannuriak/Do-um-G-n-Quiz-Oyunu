@@ -139,6 +139,7 @@
   function paint(html, screenKey) {
     const isNew = screenKey !== lastScreenKey;
     const saved = isNew ? null : captureInputs();
+    destroySortable(); // eski surukle-birak dinleyicilerini temizle
     $app.innerHTML = `<div class="screen${isNew ? ' screen-enter' : ''}">${html}</div>`;
     if (saved) restoreInputs(saved);
     if (isNew) window.scrollTo(0, 0);
@@ -714,6 +715,8 @@
     if (state.role === 'admin') saveSnapshot(state);
     view = targetView;
     handleSoundsOnSync(state);
+    // Kullanici bir kutuyu surukluyorsa ekrani altindan degistirme; birakinca cizilir.
+    if (dragging) { renderDeferred = true; return; }
     render();
   });
 
@@ -1305,6 +1308,12 @@
 
   // ---------- ortak oyun bilesenleri ----------
 
+  // Puanlar 2 ondalik basamakla gosterilir (orn. 966,45)
+  function fmtScore(n) {
+    const v = Number(n) || 0;
+    return v.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
   function renderOptions(options, { selected = null, correctId = null, disabled = false } = {}) {
     return options.map((opt, i) => {
       let cls = `option-btn opt-${i % 6}`;
@@ -1357,23 +1366,23 @@
     return o ? o.text : '?';
   }
 
-  function renderGuessesList(guesses, question) {
-    if (!guesses || !guesses.length) return '<p class="muted center">Kimse cevap vermedi.</p>';
-    const unit = question.unit ? ' ' + esc(question.unit) : '';
-    return `<div class="guess-list">${guesses.map((g, i) => `
-      <div class="guess-row ${i === 0 ? 'guess-best' : ''}">
-        <div class="guess-rank">#${i + 1}</div>
-        <div class="guess-name">${esc(g.name)}</div>
-        <div class="guess-value">${question.type === 'ranking'
-          ? (g.order || []).map((id) => esc(optionText(question.options, id))).join(' → ')
-          : esc(g.value) + unit}</div>
-        <div class="guess-distance">fark: ${g.distance}</div>
-      </div>`).join('')}</div>`;
-  }
-
   function renderOrderList(options, order) {
     if (!order) return '';
     return `<ol class="order-list">${order.map((id) => `<li>${esc(optionText(options, id))}</li>`).join('')}</ol>`;
+  }
+
+  // ---------- siralama: surukle-birak ----------
+
+  let activeSortable = null;
+  let dragging = false;
+  let renderDeferred = false;
+
+  function destroySortable() {
+    if (activeSortable) {
+      try { activeSortable.destroy(); } catch (e) { /* yok say */ }
+      activeSortable = null;
+    }
+    dragging = false;
   }
 
   function getRankingOrder(key, options) {
@@ -1386,35 +1395,74 @@
     return rankingWorkingOrder;
   }
 
+  const canDrag = () => typeof window.Sortable === 'function';
+
   function renderRankingArranger(options, order, { disabled = false } = {}) {
-    return `<div class="rank-list">${order.map((id, pos) => `
-      <div class="rank-row">
-        <div class="rank-pos">${pos + 1}</div>
+    const arrows = !disabled && !canDrag(); // kutuphane yuklenemezse yedek: ok butonlari
+    return `<div class="rank-list${disabled ? ' rank-locked' : ''}">${order.map((id, pos) => `
+      <div class="rank-row" data-id="${esc(id)}">
+        <div class="rank-pos"></div>
         <div class="rank-text">${esc(optionText(options, id))}</div>
-        <div class="rank-arrows">
-          <button type="button" class="small-btn btn-ghost rank-up" data-pos="${pos}" ${disabled || pos === 0 ? 'disabled' : ''} aria-label="Yukarı">▲</button>
-          <button type="button" class="small-btn btn-ghost rank-down" data-pos="${pos}" ${disabled || pos === order.length - 1 ? 'disabled' : ''} aria-label="Aşağı">▼</button>
-        </div>
-      </div>`).join('')}</div>`;
+        ${disabled ? '' : arrows ? `
+          <div class="rank-arrows">
+            <button type="button" class="small-btn btn-ghost rank-up" data-pos="${pos}" ${pos === 0 ? 'disabled' : ''} aria-label="Yukarı">▲</button>
+            <button type="button" class="small-btn btn-ghost rank-down" data-pos="${pos}" ${pos === order.length - 1 ? 'disabled' : ''} aria-label="Aşağı">▼</button>
+          </div>` : '<div class="rank-handle" aria-hidden="true">⠿</div>'}
+      </div>`).join('')}</div>
+      ${disabled ? '' : `<p class="muted center rank-hint">${arrows ? 'Okları kullanarak sırala.' : 'Kutuları tutup sürükleyerek sırala.'}</p>`}`;
   }
 
+  // Siralama kutularini surukle-birak yapar. Surukleme bitince yerel sira guncellenir;
+  // surukleme sirasinda gelen ekran guncellemeleri birakilana kadar ertelenir.
   function bindRankingArranger(containerId, rerender) {
-    const el = document.getElementById(containerId);
-    if (!el) return;
-    el.addEventListener('click', (e) => {
-      const btn = e.target.closest('.rank-up, .rank-down');
-      if (!btn || btn.disabled || !rankingWorkingOrder) return;
-      const pos = parseInt(btn.dataset.pos, 10);
-      const other = btn.classList.contains('rank-up') ? pos - 1 : pos + 1;
-      if (other < 0 || other >= rankingWorkingOrder.length) return;
-      const order = rankingWorkingOrder;
-      [order[pos], order[other]] = [order[other], order[pos]];
-      rerender();
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const list = container.querySelector('.rank-list');
+    if (!list) return;
+
+    if (!canDrag()) {
+      container.addEventListener('click', (e) => {
+        const btn = e.target.closest('.rank-up, .rank-down');
+        if (!btn || btn.disabled || !rankingWorkingOrder) return;
+        const pos = parseInt(btn.dataset.pos, 10);
+        const other = btn.classList.contains('rank-up') ? pos - 1 : pos + 1;
+        if (other < 0 || other >= rankingWorkingOrder.length) return;
+        const order = rankingWorkingOrder;
+        [order[pos], order[other]] = [order[other], order[pos]];
+        rerender();
+      });
+      return;
+    }
+
+    activeSortable = new window.Sortable(list, {
+      animation: 160,
+      forceFallback: true, // iOS ve Android'de ayni, dokunmatik dostu davranis
+      fallbackOnBody: true,
+      fallbackTolerance: 3,
+      ghostClass: 'rank-ghost', // birakilacagi yer
+      chosenClass: 'rank-chosen',
+      dragClass: 'rank-drag',
+      scroll: true,
+      scrollSensitivity: 60,
+      onStart() {
+        dragging = true;
+        if (navigator.vibrate) { try { navigator.vibrate(10); } catch (e) { /* yok say */ } }
+      },
+      onEnd() {
+        dragging = false;
+        rankingWorkingOrder = Array.from(list.children).map((el) => el.dataset.id);
+        if (renderDeferred) {
+          renderDeferred = false;
+          render();
+        }
+      },
     });
   }
 
+  // ---------- liste / podyum / rozetler ----------
+
   function renderLeaderboard(list) {
-    if (!list || !list.length) return '<p class="muted center">Henüz kimse puan almadı.</p>';
+    if (!list || !list.length) return '<p class="muted center">Henüz kimse yok.</p>';
     return `<div class="leaderboard">${list.map((p) => {
       const deltaCls = p.rankDelta > 0 ? 'up' : p.rankDelta < 0 ? 'down' : 'same';
       const deltaTxt = p.rankDelta > 0 ? '▲' + p.rankDelta : p.rankDelta < 0 ? '▼' + Math.abs(p.rankDelta) : '–';
@@ -1423,7 +1471,7 @@
         <div class="dot ${p.connected ? '' : 'off'}"></div>
         <div class="lb-name">${esc(p.name)}</div>
         <div class="lb-delta ${deltaCls}">${deltaTxt}</div>
-        <div class="lb-score">${p.score}</div>
+        <div class="lb-score">${fmtScore(p.score)}</div>
       </div>`;
     }).join('')}</div>`;
   }
@@ -1431,7 +1479,7 @@
   function renderPodium(list) {
     const [a, b, c] = list || [];
     const step = (p, cls, label) => (p
-      ? `<div class="step ${cls}"><div class="bar">${label}</div><div class="name">${esc(p.name)}</div><div class="muted">${p.score} puan</div></div>`
+      ? `<div class="step ${cls}"><div class="bar">${label}</div><div class="name">${esc(p.name)}</div><div class="muted">${fmtScore(p.score)} puan</div></div>`
       : '<div class="step"></div>');
     return `<div class="podium">${step(b, 'p2', '2')}${step(a, 'p1', '1')}${step(c, 'p3', '3')}</div>`;
   }
@@ -1453,17 +1501,24 @@
     return q.imageUrl ? `<img class="question-image" src="${esc(q.imageUrl)}" alt="" decoding="async">` : '';
   }
 
-  // Sonuc ekraninda sorunun tipine gore dogru cevap + dagilim / tahmin listesi
-  function renderQuestionResultBody(q, { selected = null, correctLabel = 'Gerçek' } = {}) {
+  // Dogru cevap ekrani. Coktan secmelide sik dagilimi da gosterilir; sayi ve siralama
+  // sorularinda sadece dogru cevap (baskalarinin cevaplari gosterilmez).
+  function renderReveal(q, { selected = null } = {}) {
     const unit = q.unit ? ' ' + esc(q.unit) : '';
     if (q.type === 'numeric') {
-      return `<p class="answer-reveal">${correctLabel} sayı: <strong>${esc(q.correctValue)}${unit}</strong></p>${renderGuessesList(q.guesses, q)}`;
+      return `<div class="reveal-box"><div class="reveal-label">Doğru sayı</div><div class="reveal-value">${esc(q.correctValue)}${unit}</div></div>`;
     }
     if (q.type === 'ranking') {
-      return `<p class="answer-reveal">${correctLabel} sıra:</p>${renderOrderList(q.options, q.correctOrder)}${renderGuessesList(q.guesses, q)}`;
+      return `<div class="reveal-box"><div class="reveal-label">Doğru sıralama</div>${renderOrderList(q.options, q.correctOrder)}</div>`;
     }
-    return `<div class="options-grid">${renderOptions(q.options, { selected, correctId: q.correctId, disabled: true })}</div>
+    return `<div class="reveal-box"><div class="reveal-label">Doğru cevap</div><div class="reveal-value">${esc(optionText(q.options, q.correctId))}</div></div>
+      <div class="options-grid">${renderOptions(q.options, { selected, correctId: q.correctId, disabled: true })}</div>
       ${renderDistribution(q.options, q.distribution, q.correctId)}`;
+  }
+
+  function questionHeader(s, q, suffix) {
+    return `<span class="badge">Soru ${s.questionIndex + 1}/${s.totalQuestions}${suffix ? ' — ' + suffix : ''}</span>${doubleBadge(q)}
+      <p class="question-text" style="margin-top:10px">${esc(q.text)}</p>`;
   }
 
   function launchConfetti() {
@@ -1498,15 +1553,19 @@
     return `<div class="timer-ring${secs <= 5 ? ' urgent' : ''}" id="timer-ring" style="--pct:100%"><span id="timer-text">${secs}</span></div>`;
   }
 
+  function isLastQuestion(s) {
+    return s.questionIndex + 1 >= s.totalQuestions;
+  }
+
   // ---------- ADMIN: ODA EKRANI ----------
 
   function adminEndButton(s) {
-    if (s.status === 'finished') return '';
+    if (s.status === 'podium' || s.status === 'finished') return '';
     return '<button class="btn-ghost btn-block" id="admin-end">Oyunu Erken Bitir</button>';
   }
 
-  function nextButtonLabel(s) {
-    return s.questionIndex + 1 >= s.totalQuestions ? 'Final Sıralamasını Göster 🎉' : 'Sonraki Soru ➡️';
+  function nextButton(label) {
+    return `<button class="btn-primary btn-block btn-lg" id="next-step">${label}</button>`;
   }
 
   function renderAdminRoom() {
@@ -1515,6 +1574,7 @@
     const origin = location.origin;
     const playerLink = `${origin}/?code=${s.code}`;
     const birthdayLink = `${origin}/?code=${s.code}&role=birthday&token=${s.birthdayToken}`;
+    const afterQuestionLabel = isLastQuestion(s) ? 'Final Podyumunu Göster 🏆' : 'Sonraki Soru ➡️';
 
     let body = '';
     if (s.status === 'lobby') {
@@ -1554,7 +1614,7 @@
         <div class="card center stack">
           <div class="emoji pulse" style="font-size:2.4rem">🎂🤔</div>
           <h3>${s.questionIndex + 1}. soru — ${esc(s.birthdayName)} düşünüyor...</h3>
-          <p class="muted">Soru, önce yalnızca doğum günü çocuğunun ekranında görünüyor.</p>
+          <p class="muted">Cevabını kilitlediği anda soru herkese otomatik açılacak.</p>
           ${!s.birthdayConnected ? '<p class="error-text">⚠️ Doğum günü çocuğunun bağlantısı koptu, bekleniyor...</p>' : ''}
         </div>
         ${adminEndButton(s)}
@@ -1578,19 +1638,36 @@
         <div class="card">
           <p class="muted">Cevaplayan: ${s.answeredCount} / ${s.playerCount}</p>
           <div class="progress-bar"><div style="width:${s.playerCount ? (100 * s.answeredCount / s.playerCount) : 0}%"></div></div>
+          <p class="muted" style="margin-top:8px">Süre bitince ya da herkes cevaplayınca sonuçlar otomatik açılır.</p>
         </div>
         ${adminEndButton(s)}
       `;
     } else if (s.status === 'question_results' && s.question) {
+      const q = s.question;
+      body = `
+        <div class="question-card">${questionHeader(s, q, 'Sonuçlar')}</div>
+        <div class="card center stack">
+          <div class="emoji" style="font-size:2.2rem">📱</div>
+          <h3>Herkes kendi sonucunu görüyor</h3>
+          <p>Cevaplayan: <strong>${s.answeredCount} / ${s.playerCount}</strong> · ${q.type === 'choice' ? 'Doğru bilen' : 'Tam isabet'}: <strong>${s.exactCount}</strong></p>
+        </div>
+        ${nextButton('Doğru Cevabı Göster ➡️')}
+        ${adminEndButton(s)}
+      `;
+    } else if (s.status === 'answer_reveal' && s.question) {
       body = `
         <div class="question-card">
-          <span class="badge">Soru ${s.questionIndex + 1}/${s.totalQuestions} — Sonuç</span>${doubleBadge(s.question)}
-          <p class="question-text" style="margin-top:10px">${esc(s.question.text)}</p>
-          ${renderQuestionResultBody(s.question)}
+          ${questionHeader(s, s.question)}
+          ${renderReveal(s.question)}
         </div>
-        <h3>🏆 Sıralama</h3>
+        ${nextButton('İlk 5\'i Göster 🏆')}
+        ${adminEndButton(s)}
+      `;
+    } else if (s.status === 'leaderboard') {
+      body = `
+        <h2 class="center">🏆 İlk 5</h2>
         ${renderLeaderboard(s.leaderboard)}
-        <button class="btn-primary btn-block btn-lg" id="next-question">${nextButtonLabel(s)}</button>
+        ${nextButton(afterQuestionLabel)}
         ${adminEndButton(s)}
       `;
     } else if (s.status === 'paused') {
@@ -1601,18 +1678,22 @@
           <p class="muted">Sunucu yeniden başladı ama puanlar korundu. Herkes yeniden bağlanınca kaldığın yerden devam et.</p>
           <p class="muted">Bağlı oyuncu: ${s.players.filter((p) => p.connected).length} / ${s.playerCount} · Doğum günü çocuğu: ${s.birthdayConnected ? 'bağlı ✅' : 'bekleniyor…'}</p>
         </div>
-        <h3>🏆 Sıralama</h3>
+        <h3>🏆 İlk 5</h3>
         ${renderLeaderboard(s.leaderboard)}
-        <button class="btn-primary btn-block btn-lg" id="next-question">${s.questionIndex + 1 >= s.totalQuestions ? 'Final Sıralamasını Göster 🎉' : `${s.questionIndex + 2}. sorudan devam et ➡️`}</button>
+        ${nextButton(isLastQuestion(s) ? 'Final Podyumunu Göster 🏆' : `${s.questionIndex + 2}. sorudan devam et ➡️`)}
         ${adminEndButton(s)}
       `;
-    } else if (s.status === 'finished') {
+    } else if (s.status === 'podium') {
       maybeFireConfetti(s.code);
       body = `
-        <div class="hero"><div class="emoji">🏆🎉</div><h2>Oyun Bitti!</h2></div>
+        <div class="hero"><div class="emoji">🏆🎉</div><h2>Kazananlar</h2></div>
         ${renderPodium(s.leaderboard)}
+        ${nextButton('Tüm Sıralamayı Göster ➡️')}
+      `;
+    } else if (s.status === 'finished') {
+      body = `
+        <h2 class="center">📋 Tüm Sıralama</h2>
         ${renderBadges(s.badges)}
-        <h3>Tüm Oyuncular</h3>
         ${renderLeaderboard(s.leaderboard)}
         <button class="btn-primary btn-block btn-lg" id="back-to-list">Quiz Listesine Dön</button>
       `;
@@ -1625,9 +1706,9 @@
 
     on('copy-player', 'click', () => copyText(playerLink));
     on('copy-bday', 'click', () => copyText(birthdayLink));
-    on('start-game', 'click', () => socket.emit('admin:start'));
-    on('next-question', 'click', (e) => { e.currentTarget.disabled = true; socket.emit('admin:next'); });
-    on('admin-end', 'click', () => { if (confirm('Oyunu şimdi bitirmek istediğine emin misin?')) socket.emit('admin:end'); });
+    on('start-game', 'click', (e) => { e.currentTarget.disabled = true; socket.emit('admin:start'); });
+    on('next-step', 'click', (e) => { e.currentTarget.disabled = true; socket.emit('admin:next', { from: s.status }); });
+    on('admin-end', 'click', () => { if (confirm('Oyunu şimdi bitirip podyumu göstermek istediğine emin misin?')) socket.emit('admin:end'); });
     on('cancel-room', 'click', () => { if (confirm('Bu oda tamamen iptal edilsin mi? Herkes odadan çıkarılacak.')) socket.emit('admin:cancelRoom'); });
     on('back-to-list', 'click', () => {
       lsDel('bq_snapshot_' + s.code);
@@ -1659,18 +1740,18 @@
       let answerUi;
       if (q.type === 'numeric') {
         answerUi = `
-          <p class="muted">Gerçek/doğru sayıyı yaz. Süre sınırsız.</p>
-          ${numericInputBox({ inputId: 'bday-numeric-input', btnId: 'bday-numeric-submit', unit: q.unit, placeholder: 'Gerçek sayı', btnLabel: 'Kilitle 🔒' })}`;
+          <p class="muted">Doğru sayıyı yaz. Süre sınırsız.</p>
+          ${numericInputBox({ inputId: 'bday-numeric-input', btnId: 'bday-numeric-submit', unit: q.unit, placeholder: 'Doğru sayı', btnLabel: 'Kilitle 🔒' })}`;
       } else if (q.type === 'ranking') {
         const order = getRankingOrder(qKey + '-bday', q.options);
         answerUi = `
-          <p class="muted">Öğeleri doğru sıraya diz (▲▼). Süre sınırsız.</p>
+          <p class="muted">Öğeleri doğru sıraya diz. Süre sınırsız.</p>
           <div id="bday-ranking">${renderRankingArranger(q.options, order)}</div>
           <button type="button" class="btn-primary btn-block" id="bday-ranking-submit" style="margin-top:10px">Sıralamamı Kilitle 🔒</button>`;
       } else {
         const formOpen = customFormKey === qKey;
         answerUi = `
-          <p class="muted">Senin için doğru olan şıkkı seç. Süre sınırsız.</p>
+          <p class="muted">Doğru cevabı seç. Süre sınırsız.</p>
           <div class="options-grid" id="bday-options">${renderOptions(q.options)}</div>
           <div class="custom-answer-box">
             <button type="button" class="custom-answer-toggle" id="custom-answer-toggle">Doğru cevap şıklarda yok, kendim yazayım ✏️</button>
@@ -1682,8 +1763,7 @@
       }
       body = `
         <div class="question-card">
-          <span class="badge">Soru ${s.questionIndex + 1}/${s.totalQuestions} — sadece sen görüyorsun 🤫</span>${doubleBadge(q)}
-          <p class="question-text" style="margin-top:10px">${esc(q.text)}</p>
+          ${questionHeader(s, q, 'sadece sen görüyorsun 🤫')}
           ${questionImage(q)}
           ${answerUi}
         </div>
@@ -1693,29 +1773,29 @@
         <div class="card center stack">
           <div class="emoji pulse" style="font-size:2.2rem">🔒</div>
           <h3>Cevabın kilitlendi!</h3>
-          <p class="muted">Şimdi arkadaşların cevaplıyor...</p>
+          <p class="muted">Soru arkadaşlarına açıldı, şimdi onlar cevaplıyor...</p>
           <p>${s.answeredCount} / ${s.playerTotal} cevapladı</p>
           <div class="progress-bar"><div style="width:${s.playerTotal ? (100 * s.answeredCount / s.playerTotal) : 0}%"></div></div>
         </div>
       `;
     } else if (s.status === 'question_results' && s.question) {
-      const q = s.question;
-      const best = q.guesses && q.guesses.length ? q.guesses[0] : null;
-      let summary;
-      if (q.type === 'choice') summary = `<p>🎯 <strong>${s.correctGuessers}</strong> kişi senin cevabını bildi!</p>`;
-      else if (best) summary = `<p>🏅 En yakın: <strong>${esc(best.name)}</strong> (fark: ${best.distance})</p>`;
-      else summary = '<p class="muted">Kimse cevap vermedi.</p>';
+      body = `
+        <div class="card center stack">
+          <div class="emoji" style="font-size:2.2rem">🎯</div>
+          <h3>${s.exactCount} kişi ${s.question.type === 'choice' ? 'cevabını doğru bildi' : 'tam isabet yaptı'}!</h3>
+          <p class="muted">Arkadaşların şu an kendi sonuçlarını görüyor.</p>
+        </div>
+      `;
+    } else if (s.status === 'answer_reveal' && s.question) {
       body = `
         <div class="question-card">
-          <span class="badge">Soru ${s.questionIndex + 1}/${s.totalQuestions} — Sonuç</span>${doubleBadge(q)}
-          <p class="question-text" style="margin-top:10px">${esc(q.text)}</p>
-          ${renderQuestionResultBody(q, { correctLabel: 'Senin belirlediğin' })}
+          ${questionHeader(s, s.question)}
+          ${renderReveal(s.question)}
         </div>
-        <div class="card center">
-          ${summary}
-          <p class="muted">Sıradaki soruya yönetici geçecek.</p>
-        </div>
-        <h3>🏆 İlk 5</h3>
+      `;
+    } else if (s.status === 'leaderboard') {
+      body = `
+        <h2 class="center">🏆 İlk 5</h2>
         ${renderLeaderboard(s.leaderboard)}
       `;
     } else if (s.status === 'paused') {
@@ -1725,15 +1805,17 @@
           <h3>Oyun birazdan kaldığı yerden devam edecek</h3>
           <p class="muted">Bağlantı yenilendi, puanlar korundu.</p>
         </div>
-        <h3>🏆 İlk 5</h3>
-        ${renderLeaderboard(s.leaderboard)}
       `;
-    } else if (s.status === 'finished') {
+    } else if (s.status === 'podium') {
       maybeFireConfetti(s.code);
       body = `
         <div class="hero"><div class="emoji">🎂🎉🥳</div><h2>İyi ki doğdun!</h2></div>
+        ${renderPodium(s.leaderboard)}
+      `;
+    } else if (s.status === 'finished') {
+      body = `
+        <h2 class="center">📋 Tüm Sıralama</h2>
         ${renderBadges(s.badges)}
-        <h3>Final Sıralaması</h3>
         ${renderLeaderboard(s.leaderboard)}
       `;
     }
@@ -1765,12 +1847,47 @@
       socket.emit('birthday:lockNumeric', { value: Number(raw) });
     });
     bindRankingArranger('bday-ranking', renderBirthdayRoom);
-    on('bday-ranking-submit', 'click', () => {
-      if (rankingWorkingOrder) socket.emit('birthday:lockRanking', { order: rankingWorkingOrder.slice() });
+    on('bday-ranking-submit', 'click', (e) => {
+      if (!rankingWorkingOrder) return;
+      e.currentTarget.disabled = true;
+      socket.emit('birthday:lockRanking', { order: rankingWorkingOrder.slice() });
     });
   }
 
   // ---------- OYUNCU: ODA EKRANI ----------
+
+  // Soru sonucu: dogru/yanlis gorseli + o sorudan alinan puan + guncel sira.
+  function renderPlayerResult(s) {
+    const q = s.question;
+    const r = s.myResult || { answered: false, won: false, points: 0 };
+    const unit = q.unit ? ' ' + esc(q.unit) : '';
+    let title;
+    let detail = '';
+    if (!r.answered) {
+      title = '⌛ Süre doldu, cevap vermedin';
+    } else if (q.type === 'choice') {
+      title = r.won ? '🎉 Doğru bildin!' : '❌ Yanlış cevap';
+    } else if (q.type === 'numeric') {
+      title = r.won ? '🎯 Tam isabet!' : '❌ Tam bilemedin';
+      if (!r.won) detail = `Doğru sayıya farkın: <strong>${esc(r.diff)}${unit}</strong>`;
+    } else {
+      title = r.won ? '🎯 Sıralamayı tam bildin!' : '❌ Sıralama tam doğru değil';
+      if (!r.won) detail = `Yanlış yerde <strong>${esc(r.misplaced)}</strong> kutu var`;
+    }
+    return `
+      <div class="result-banner ${r.won ? 'correct' : 'wrong'}">
+        ${title}
+        <span class="points">+${fmtScore(r.points)} puan</span>
+      </div>
+      ${s.resultPhotoUrl ? `<img class="result-photo" src="${esc(s.resultPhotoUrl)}" alt="" decoding="async">` : ''}
+      ${detail ? `<div class="card center result-detail">${detail}</div>` : ''}
+      <div class="card center rank-card">
+        <div class="rank-card-label">Sıralaman</div>
+        <div class="rank-card-value">${s.myRank}.</div>
+        <div class="muted">${s.playerCount} kişi içinde · Toplam puanın: <strong>${fmtScore(s.myScore)}</strong></div>
+      </div>
+    `;
+  }
 
   function renderPlayerRoom() {
     const s = latestSync;
@@ -1792,7 +1909,7 @@
         <div class="card center stack">
           <div class="emoji pulse" style="font-size:2.4rem">🎂🤔</div>
           <h3>${esc(s.birthdayName || 'Doğum günü çocuğu')} düşünüyor...</h3>
-          <p class="muted">Soru birazdan senin ekranında da açılacak!</p>
+          <p class="muted">Cevabını verdiği anda soru senin ekranında açılacak!</p>
         </div>
       `;
     } else if (s.status === 'question_open' && s.question) {
@@ -1824,25 +1941,17 @@
         </div>
       `;
     } else if (s.status === 'question_results' && s.question) {
-      const q = s.question;
-      const r = s.myResult || { won: false, points: 0 };
-      const answered = q.type === 'numeric' ? r.value != null : q.type === 'ranking' ? r.order != null : r.optionId != null;
-      let bannerText;
-      if (!answered) bannerText = '⌛ Süre doldu, cevap vermedin';
-      else if (q.type === 'choice') bannerText = r.correct ? '🎉 Doğru bildin!' : '❌ Yanlış cevap';
-      else if (r.won) bannerText = q.type === 'numeric' ? '🎉 En yakın tahmin seninki!' : '🎉 En yakın sıralama seninki!';
-      else bannerText = `📏 Fark: ${r.distance}${q.type === 'numeric' && q.unit ? ' ' + esc(q.unit) : ''} · ${r.rank}. en yakın`;
+      body = renderPlayerResult(s);
+    } else if (s.status === 'answer_reveal' && s.question) {
       body = `
-        <div class="result-banner ${r.won ? 'correct' : 'wrong'}">
-          ${bannerText}
-          <span class="points">+${r.points} puan · Toplam: ${s.myScore}</span>
-        </div>
-        ${s.resultPhotoUrl ? `<img class="result-photo" src="${esc(s.resultPhotoUrl)}" alt="" decoding="async">` : ''}
         <div class="question-card">
-          <p class="question-text">${esc(q.text)}</p>
-          ${renderQuestionResultBody(q, { selected: r.optionId })}
+          ${questionHeader(s, s.question)}
+          ${renderReveal(s.question, { selected: s.myChoice })}
         </div>
-        <h3>🏆 İlk 5</h3>
+      `;
+    } else if (s.status === 'leaderboard') {
+      body = `
+        <h2 class="center">🏆 İlk 5</h2>
         ${renderLeaderboard(s.leaderboard)}
       `;
     } else if (s.status === 'paused') {
@@ -1850,22 +1959,23 @@
         <div class="card center stack">
           <div class="emoji pulse" style="font-size:2.2rem">🔄</div>
           <h3>Oyun birazdan kaldığı yerden devam edecek</h3>
-          <p class="muted">Puanın korundu: <strong>${s.myScore}</strong></p>
+          <p class="muted">Puanın korundu: <strong>${fmtScore(s.myScore)}</strong></p>
         </div>
-        <h3>🏆 İlk 5</h3>
-        ${renderLeaderboard(s.leaderboard)}
       `;
-    } else if (s.status === 'finished') {
+    } else if (s.status === 'podium') {
       maybeFireConfetti(s.code);
       body = `
         <div class="hero"><div class="emoji">🏁🎉</div><h2>Oyun Bitti!</h2></div>
+        ${renderPodium(s.leaderboard)}
+      `;
+    } else if (s.status === 'finished') {
+      body = `
+        <h2 class="center">📋 Tüm Sıralama</h2>
         <div class="card center">
-          <p>Senin puanın: <strong>${s.myScore}</strong></p>
+          <p>Sıralaman: <strong>${s.myRank}.</strong> · Puanın: <strong>${fmtScore(s.myScore)}</strong></p>
           <p class="muted">${s.myCorrectCount} tam isabet</p>
         </div>
-        ${renderPodium(s.leaderboard)}
         ${renderBadges(s.badges)}
-        <h3>Final Sıralaması</h3>
         ${renderLeaderboard(s.leaderboard)}
       `;
     }
@@ -1896,6 +2006,7 @@
       if (!rankingWorkingOrder) return;
       markAnswered();
       e.currentTarget.disabled = true;
+      destroySortable();
       socket.emit('player:answerRanking', { order: rankingWorkingOrder.slice() });
     });
   }
