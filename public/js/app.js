@@ -31,8 +31,6 @@
 
   // Soru sayaci icin yerel bitis zamani (sunucunun gonderdigi kalan sureden hesaplanir).
   let deadline = null;
-  let lastTickKey = null;
-  let lastResultSoundKey = null;
 
   // Siralama sorusunda henuz gonderilmemis yerel sira (sik id'leri) ve hangi soruya ait oldugu.
   let rankingWorkingOrder = null;
@@ -144,101 +142,6 @@
     if (saved) restoreInputs(saved);
     if (isNew) window.scrollTo(0, 0);
     lastScreenKey = screenKey;
-  }
-
-  // ---------- ses efektleri ----------
-  // Kucuk sesler Web Audio ile bir kere uretilip bellekte tutulur (dosya indirme yok, gecikme yok).
-  // Tek kanal: yeni ses baslamadan once calan ses durdurulur, sesler ust uste binmez.
-
-  const Sound = (function () {
-    let ctx = null;
-    const buffers = {};
-    let current = null;
-    let currentName = null;
-
-    function build(notes, volume) {
-      const sr = ctx.sampleRate;
-      const total = Math.max(...notes.map((n) => n[1] + n[2])) + 0.02;
-      const buf = ctx.createBuffer(1, Math.ceil(total * sr), sr);
-      const data = buf.getChannelData(0);
-      for (const [freq, start, dur] of notes) {
-        const s0 = Math.floor(start * sr);
-        const len = Math.floor(dur * sr);
-        for (let i = 0; i < len && s0 + i < data.length; i++) {
-          const t = i / sr;
-          const env = Math.min(1, t / 0.006) * Math.exp(-t * (5 / dur));
-          const wave = Math.sin(2 * Math.PI * freq * t) + 0.25 * Math.sin(4 * Math.PI * freq * t);
-          data[s0 + i] += wave * env * volume;
-        }
-      }
-      return buf;
-    }
-
-    function init() {
-      if (ctx) {
-        if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-        return;
-      }
-      const Ctx = window.AudioContext || window.webkitAudioContext;
-      if (!Ctx) return;
-      try { ctx = new Ctx(); } catch (e) { ctx = null; return; }
-      // iOS'ta ses motorunu acmak icin sessiz bir ornek cal.
-      try {
-        const silent = ctx.createBufferSource();
-        silent.buffer = ctx.createBuffer(1, 1, 22050);
-        silent.connect(ctx.destination);
-        silent.start(0);
-      } catch (e) { /* yok say */ }
-      buffers.tick = build([[1250, 0, 0.045]], 0.22);
-      buffers.tock = build([[880, 0, 0.045]], 0.22);
-      buffers.win = build([[523.25, 0, 0.14], [659.25, 0.09, 0.14], [783.99, 0.18, 0.16], [1046.5, 0.27, 0.3]], 0.16);
-      buffers.fail = build([[392, 0, 0.2], [311.13, 0.16, 0.36]], 0.17);
-    }
-
-    function stop() {
-      if (!current) return;
-      try { current.stop(); } catch (e) { /* zaten durdu */ }
-      try { current.disconnect(); } catch (e) { /* yok say */ }
-      current = null;
-      currentName = null;
-    }
-
-    function play(name) {
-      if (!ctx || !buffers[name]) return;
-      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-      stop();
-      const src = ctx.createBufferSource();
-      src.buffer = buffers[name];
-      src.connect(ctx.destination);
-      src.onended = () => {
-        if (current === src) { current = null; currentName = null; }
-        try { src.disconnect(); } catch (e) { /* yok say */ }
-      };
-      src.start();
-      current = src;
-      currentName = name;
-    }
-
-    function isTicking() { return currentName === 'tick' || currentName === 'tock'; }
-    function stopTicking() { if (isTicking()) stop(); }
-
-    return { init, play, stop, stopTicking };
-  })();
-
-  // Tarayicilar sesi ancak bir kullanici etkilesiminden sonra calar; ilk dokunusta hazirla.
-  ['pointerdown', 'touchend', 'click', 'keydown'].forEach((ev) => document.addEventListener(ev, Sound.init, { passive: true }));
-
-  function handleSoundsOnSync(s) {
-    if (s.role !== 'player') return;
-    if (s.status !== 'question_open' || s.hasAnswered) Sound.stopTicking();
-    if (s.status === 'question_results') {
-      const key = questionKey(s);
-      if (lastResultSoundKey !== key) {
-        lastResultSoundKey = key;
-        const r = s.myResult || {};
-        Sound.play(r.won ? 'win' : 'fail');
-      }
-    }
   }
 
   // ---------- gorsel on yukleme ----------
@@ -590,7 +493,6 @@
     latestSync = null;
     lastSyncJson = '';
     deadline = null;
-    Sound.stop();
     clearTimeout(rejoinTimer);
   }
 
@@ -654,7 +556,7 @@
     }
   }
 
-  // ---------- soru sayaci + tik-tak ----------
+  // ---------- soru sayaci ----------
 
   setInterval(() => {
     const s = latestSync;
@@ -668,17 +570,6 @@
       ring.classList.toggle('urgent', remainInt <= 5);
       const txt = document.getElementById('timer-text');
       if (txt && txt.textContent !== String(remainInt)) txt.textContent = remainInt;
-    }
-    // Tik-tak sadece oyuncuda, son 5 saniyede ve henuz cevap verilmemisken.
-    const waiting = s.role === 'player' && !s.hasAnswered && pendingAnswerKey !== questionKey(s);
-    if (waiting && remainInt >= 1 && remainInt <= 5) {
-      const key = questionKey(s) + '-' + remainInt;
-      if (key !== lastTickKey) {
-        lastTickKey = key;
-        Sound.play(remainInt % 2 ? 'tick' : 'tock');
-      }
-    } else {
-      Sound.stopTicking();
     }
   }, 200);
 
@@ -715,7 +606,6 @@
     if (state.preload) preloadImages(state.preload);
     if (state.role === 'admin') saveSnapshot(state);
     view = targetView;
-    handleSoundsOnSync(state);
     // Kullanici bir kutuyu surukluyorsa ekrani altindan degistirme; birakinca cizilir.
     if (dragging) { renderDeferred = true; return; }
     render();
@@ -1923,7 +1813,6 @@
           <div class="emoji bounce" style="font-size:2.4rem">⏳</div>
           <h3>Lobide bekleniyor...</h3>
           <p class="muted">${s.playerCount} oyuncu katıldı. Yönetici başlatınca oyun açılacak.</p>
-          <p class="muted">🔊 Sesleri duymak için telefonunun sessiz modunu kapat ve ekrana bir kez dokun.</p>
         </div>
       `;
     } else if (s.status === 'birthday_turn') {
@@ -2007,7 +1896,6 @@
 
     const markAnswered = () => {
       pendingAnswerKey = qKey;
-      Sound.stopTicking();
     };
     bindOptions('player-options', (optionId, btn, container) => {
       if (s.hasAnswered || pendingAnswerKey === qKey) return;

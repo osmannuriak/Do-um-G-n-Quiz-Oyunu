@@ -138,8 +138,6 @@ kısa olan üstte olur. Cevap vermeyen 0 puan alır; çift puanlı sorularda 2x.
   gösterilir.
 - Şıklar her soruda rastgele karıştırılır (Fisher-Yates); doğru cevap şık
   kimliğiyle takip edilir.
-- Sesler: son 5 saniyede tik-tak, doğruda kısa başarı, yanlış/sürede kısa
-  başarısızlık sesi (Web Audio ile üretilir, dosya indirmez, üst üste binmez).
 - Ekran geçişleri kısa CSS (transform/opacity) animasyonlarıyla yapılır.
 - Soru süresi 10 ile 60 saniye arasında 5'er saniyelik adımlarla seçilebilir.
 - Her soruda 2 ile 6 arasında şık olabilir.
