@@ -1485,9 +1485,9 @@
   }
 
   function renderBadges(badges) {
-    if (!badges || !badges.length) return '';
+    if (!badges || !badges.length) return '<h2 class="center">🎖️ Rozetler</h2><p class="muted center">Bu oyunda rozet kazanan olmadı.</p>';
     return `<div class="badges-box">
-      <h3>🎖️ Final Unvanları</h3>
+      <h2 class="center">🎖️ Rozetler</h2>
       <div class="badges-list">${badges.map((b) => `
         <div class="badge-row">
           <span class="badge-emoji">${b.emoji}</span>
@@ -1563,7 +1563,7 @@
   // ---------- ADMIN: ODA EKRANI ----------
 
   function adminEndButton(s) {
-    if (s.status === 'podium' || s.status === 'finished') return '';
+    if (s.status === 'podium' || s.status === 'badges' || s.status === 'finished') return '';
     return '<button class="btn-ghost btn-block" id="admin-end">Oyunu Erken Bitir</button>';
   }
 
@@ -1691,12 +1691,16 @@
       body = `
         <div class="hero"><div class="emoji">🏆🎉</div><h2>Kazananlar</h2></div>
         ${renderPodium(s.leaderboard)}
+        ${nextButton('Rozetleri Göster 🎖️')}
+      `;
+    } else if (s.status === 'badges') {
+      body = `
+        ${renderBadges(s.badges)}
         ${nextButton('Tüm Sıralamayı Göster ➡️')}
       `;
     } else if (s.status === 'finished') {
       body = `
         <h2 class="center">📋 Tüm Sıralama</h2>
-        ${renderBadges(s.badges)}
         ${renderLeaderboard(s.leaderboard)}
         <button class="btn-primary btn-block btn-lg" id="back-to-list">Quiz Listesine Dön</button>
       `;
@@ -1815,10 +1819,11 @@
         <div class="hero"><div class="emoji">🎂🎉🥳</div><h2>İyi ki doğdun!</h2></div>
         ${renderPodium(s.leaderboard)}
       `;
+    } else if (s.status === 'badges') {
+      body = renderBadges(s.badges);
     } else if (s.status === 'finished') {
       body = `
         <h2 class="center">📋 Tüm Sıralama</h2>
-        ${renderBadges(s.badges)}
         ${renderLeaderboard(s.leaderboard)}
       `;
     }
@@ -1971,6 +1976,8 @@
         <div class="hero"><div class="emoji">🏁🎉</div><h2>Oyun Bitti!</h2></div>
         ${renderPodium(s.leaderboard)}
       `;
+    } else if (s.status === 'badges') {
+      body = renderBadges(s.badges);
     } else if (s.status === 'finished') {
       body = `
         <h2 class="center">📋 Tüm Sıralama</h2>
@@ -1978,7 +1985,6 @@
           <p>Sıralaman: <strong>${s.myRank}.</strong> · Puanın: <strong>${fmtScore(s.myScore)}</strong></p>
           <p class="muted">${s.myCorrectCount} tam isabet</p>
         </div>
-        ${renderBadges(s.badges)}
         ${renderLeaderboard(s.leaderboard)}
       `;
     }

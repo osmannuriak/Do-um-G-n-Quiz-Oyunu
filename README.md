@@ -56,10 +56,10 @@ telefonlardan katılmak için bilgisayarının yerel ağ IP'sini kullan (örn.
       görseli + o sorudan alınan puan + güncel sıralama.
    4. Yönetici → doğru cevap ekranı. 5. Yönetici → ilk 5. 6. Yönetici → sonraki soru.
    Son soruda ilk 5 gösterilmez (sürpriz kaçmasın): doğru cevap ekranından
-   direkt podyuma (ilk 3) geçilir → yönetici geçince tüm sıralama ve rozetler.
+   direkt podyuma (ilk 3) geçilir → yönetici geçince rozetler → tüm sıralama.
 
    Rozetler (herkes kazanabilir, eşitlikte hepsine verilir): 🚀 Yükselen Yıldız,
-   🦄 Kendi Yolunda, 🐢 Acele Etmeyen, 🎯 Kahin Gözü, 💖 Gönüllerin Şampiyonu.
+   🦄 Kendi Yolunda, 🐢 Acele Etmeyen, 💖 Gönüllerin Şampiyonu.
 
 ## 🌍 Herkesin telefonundan online oynanabilmesi için (deploy)
 

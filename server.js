@@ -172,7 +172,7 @@ function createRoom(clean, ids = {}) {
     adminToken: ids.adminToken || nanoid(16),
     birthdayToken: ids.birthdayToken || nanoid(16),
     adminSocketId: null,
-    status: 'lobby', // lobby | birthday_turn | question_open | question_results | answer_reveal | leaderboard | paused | podium | finished
+    status: 'lobby', // lobby | birthday_turn | question_open | question_results | answer_reveal | leaderboard | paused | podium | badges | finished
     questionIndex: -1,
     birthday: null, // { id, name, socketId, connected }
     players: new Map(),
@@ -296,10 +296,6 @@ function computeBadges(room) {
   const slow = topBy(ranked, (p) => (p.answeredCount > 0 && p.answeredCount >= played / 2 ? p.slowSum / p.answeredCount : null));
   add('🐢', 'Acele Etmeyen', 'Cevaplarını en uzun düşünerek veren', slow.winners);
 
-  // Kahin Gozu (onceki surumden): podyuma giremeyen ama en cok dogru / tam isabet yapan.
-  const kahin = topBy(ranked.slice(3), (p) => (p.correctCount > 0 ? p.correctCount : null));
-  add('🎯', 'Kahin Gözü', 'Podyuma giremeyen ama en çok doğru bilen', kahin.winners);
-
   // Gonullerin Sampiyonu: sonuncu (puan ve toplam sure tamamen esitse hepsi).
   const last = ranked[ranked.length - 1];
   add('💖', 'Gönüllerin Şampiyonu', 'Sıralamada sonuncu olan',
@@ -395,7 +391,7 @@ function clearQuestionTimer(room) {
 //   -> leaderboard (yonetici) -> sonraki soru ya da podium (yonetici) -> finished: tam liste (yonetici)
 // ---------------------------------------------------------------------------
 
-const ENDED = new Set(['podium', 'finished']);
+const ENDED = new Set(['podium', 'badges', 'finished']);
 
 function startQuestion(room) {
   clearQuestionTimer(room);
@@ -573,7 +569,8 @@ function advance(room) {
     case 'paused':
       startQuestion(room);
       return;
-    case 'podium': room.status = 'finished'; break;
+    case 'podium': room.status = 'badges'; break;
+    case 'badges': room.status = 'finished'; break;
     default: return;
   }
   touch(room);
@@ -669,10 +666,8 @@ function stateForAdmin(room) {
   if (s === 'answer_reveal') state.question = questionPayload(room, { reveal: true });
   if (s === 'leaderboard' || s === 'paused') state.leaderboard = leaderboardPayload(room, 5);
   if (s === 'podium') state.leaderboard = leaderboardPayload(room, 3);
-  if (s === 'finished') {
-    state.leaderboard = leaderboardPayload(room);
-    state.badges = computeBadges(room);
-  }
+  if (s === 'badges') state.badges = computeBadges(room);
+  if (s === 'finished') state.leaderboard = leaderboardPayload(room);
   return state;
 }
 
@@ -696,9 +691,10 @@ function stateForBirthday(room) {
     state.leaderboard = leaderboardPayload(room, 5);
   } else if (s === 'podium') {
     state.leaderboard = leaderboardPayload(room, 3);
+  } else if (s === 'badges') {
+    state.badges = computeBadges(room);
   } else if (s === 'finished') {
     state.leaderboard = leaderboardPayload(room);
-    state.badges = computeBadges(room);
   }
   return state;
 }
@@ -735,10 +731,11 @@ function stateForPlayer(room, playerId) {
     state.leaderboard = leaderboardPayload(room, 5);
   } else if (s === 'podium') {
     state.leaderboard = leaderboardPayload(room, 3);
+  } else if (s === 'badges') {
+    state.badges = computeBadges(room);
   } else if (s === 'finished') {
     state.leaderboard = leaderboardPayload(room);
     state.myCorrectCount = player ? player.correctCount : 0;
-    state.badges = computeBadges(room);
   }
   return state;
 }
