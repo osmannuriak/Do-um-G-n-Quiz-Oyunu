@@ -864,7 +864,7 @@
   function renderHome() {
     paint(`
       <div class="hero">
-        <div class="emoji">🎉🎂🎈</div>
+        <div class="emoji">🎂</div>
         <h1>Doğum Günü Quiz</h1>
         <p class="muted">Sorular doğum günü çocuğu hakkında — doğru cevabı o anlık belirliyor!</p>
       </div>
@@ -1144,7 +1144,7 @@
           </div>
         </div>
         <div class="card stack">
-          <strong>🎉😢 Sonuç Görselleri (isteğe bağlı)</strong>
+          <strong>Sonuç Görselleri (isteğe bağlı)</strong>
           <p class="muted">Her sorudan sonra, oyuncunun sonucuna göre bu gruptan rastgele biri gösterilir.</p>
           ${photoGroupEditor('correct', 'Doğru cevap görselleri (mutlu / 👍)', editorQuiz.correctPhotos)}
           ${photoGroupEditor('wrong', 'Yanlış cevap görselleri (üzgün)', editorQuiz.wrongPhotos)}
@@ -1500,8 +1500,22 @@
     </div>`;
   }
 
+  // Gorseli kirpmadan, orijinal en-boy oraniyla gosterir. URL'de boyut varsa (?w=&h=) yeri
+  // gorsel yuklenmeden ayrilir (sayfa ziplamaz); genislik, yukseklik siniri asilmayacak sekilde secilir.
+  function fitImage(url, cls, maxVh) {
+    if (!url) return '';
+    let style = '';
+    const m = /[?&]w=(\d+)&h=(\d+)/.exec(url);
+    if (m && Number(m[1]) > 0 && Number(m[2]) > 0) {
+      const w = Number(m[1]);
+      const h = Number(m[2]);
+      style = ` width="${w}" height="${h}" style="aspect-ratio:${w}/${h};width:min(100%, calc(${maxVh}vh * ${(w / h).toFixed(4)}))"`;
+    }
+    return `<img class="${cls}" src="${esc(url)}" alt="" decoding="async"${style}>`;
+  }
+
   function questionImage(q) {
-    return q.imageUrl ? `<img class="question-image" src="${esc(q.imageUrl)}" alt="" decoding="async">` : '';
+    return fitImage(q.imageUrl, 'question-image', 40);
   }
 
   // Dogru cevap ekrani. Coktan secmelide sik dagilimi da gosterilir; sayi ve siralama
@@ -1615,7 +1629,7 @@
     } else if (s.status === 'birthday_turn') {
       body = `
         <div class="card center stack">
-          <div class="emoji pulse" style="font-size:2.4rem">🎂🤔</div>
+          <div class="emoji pulse" style="font-size:2.4rem">🤔</div>
           <h3>${s.questionIndex + 1}. soru — ${esc(s.birthdayName)} düşünüyor...</h3>
           <p class="muted">Cevabını kilitlediği anda soru herkese otomatik açılacak.</p>
           ${!s.birthdayConnected ? '<p class="error-text">⚠️ Doğum günü çocuğunun bağlantısı koptu, bekleniyor...</p>' : ''}
@@ -1689,7 +1703,7 @@
     } else if (s.status === 'podium') {
       maybeFireConfetti(s.code);
       body = `
-        <div class="hero"><div class="emoji">🏆🎉</div><h2>Kazananlar</h2></div>
+        <div class="hero"><div class="emoji">🏆</div><h2>Kazananlar</h2></div>
         ${renderPodium(s.leaderboard)}
         ${nextButton('Rozetleri Göster 🎖️')}
       `;
@@ -1770,7 +1784,7 @@
       }
       body = `
         <div class="question-card">
-          ${questionHeader(s, q, 'sadece sen görüyorsun 🤫')}
+          ${questionHeader(s, q, 'sadece sen görüyorsun')}
           ${questionImage(q)}
           ${answerUi}
         </div>
@@ -1816,7 +1830,7 @@
     } else if (s.status === 'podium') {
       maybeFireConfetti(s.code);
       body = `
-        <div class="hero"><div class="emoji">🎂🎉🥳</div><h2>İyi ki doğdun!</h2></div>
+        <div class="hero"><div class="emoji">🎂</div><h2>İyi ki doğdun!</h2></div>
         ${renderPodium(s.leaderboard)}
       `;
     } else if (s.status === 'badges') {
@@ -1887,7 +1901,7 @@
         ${title}
         <span class="points">+${fmtScore(r.points)} puan</span>
       </div>
-      ${s.resultPhotoUrl ? `<img class="result-photo" src="${esc(s.resultPhotoUrl)}" alt="" decoding="async">` : ''}
+      ${fitImage(s.resultPhotoUrl, 'result-photo', 50)}
       ${detail ? `<div class="card center result-detail">${detail}</div>` : ''}
       <div class="card center rank-card">
         <div class="rank-card-label">Sıralaman</div>
@@ -1915,7 +1929,7 @@
     } else if (s.status === 'birthday_turn') {
       body = `
         <div class="card center stack">
-          <div class="emoji pulse" style="font-size:2.4rem">🎂🤔</div>
+          <div class="emoji pulse" style="font-size:2.4rem">🤔</div>
           <h3>${esc(s.birthdayName || 'Doğum günü çocuğu')} düşünüyor...</h3>
           <p class="muted">Cevabını verdiği anda soru senin ekranında açılacak!</p>
         </div>
@@ -1973,7 +1987,7 @@
     } else if (s.status === 'podium') {
       maybeFireConfetti(s.code);
       body = `
-        <div class="hero"><div class="emoji">🏁🎉</div><h2>Oyun Bitti!</h2></div>
+        <div class="hero"><div class="emoji">🏁</div><h2>Oyun Bitti!</h2></div>
         ${renderPodium(s.leaderboard)}
       `;
     } else if (s.status === 'badges') {

@@ -146,13 +146,43 @@ app.use(express.static(path.join(__dirname, 'public')));
 /** @type {Map<string, any>} */
 const rooms = new Map();
 
+// Gorselin piksel boyutunu dosya basligindan okur (JPEG/PNG/GIF/WebP). Okunamazsa null.
+// Istemci bu boyutla gorsel yuklenmeden yerini ayirir, sayfa duzeni ziplamaz.
+function imageSize(buf, mime) {
+  try {
+    if (mime === 'image/png' && buf.length > 24) return { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) };
+    if (mime === 'image/gif' && buf.length > 10) return { w: buf.readUInt16LE(6), h: buf.readUInt16LE(8) };
+    if (mime === 'image/webp' && buf.length > 30 && buf.toString('ascii', 8, 12) === 'WEBP') {
+      const chunk = buf.toString('ascii', 12, 16);
+      if (chunk === 'VP8 ') return { w: buf.readUInt16LE(26) & 0x3fff, h: buf.readUInt16LE(28) & 0x3fff };
+      if (chunk === 'VP8L') { const b = buf.readUInt32LE(21); return { w: (b & 0x3fff) + 1, h: ((b >> 14) & 0x3fff) + 1 }; }
+      if (chunk === 'VP8X') return { w: buf.readUIntLE(24, 3) + 1, h: buf.readUIntLE(27, 3) + 1 };
+    }
+    if (mime === 'image/jpeg') {
+      let i = 2;
+      while (i + 9 < buf.length) {
+        if (buf[i] !== 0xff) { i++; continue; }
+        const m = buf[i + 1];
+        const isSof = m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc;
+        if (isSof) return { w: buf.readUInt16BE(i + 7), h: buf.readUInt16BE(i + 5) };
+        if (m === 0xd8 || m === 0x01 || (m >= 0xd0 && m <= 0xd7)) { i += 2; continue; }
+        i += 2 + buf.readUInt16BE(i + 2);
+      }
+    }
+  } catch (e) { /* bozuk baslik: boyutsuz gecilir */ }
+  return null;
+}
+
 // Gorseli odanin bellegine koyar ve socket'ten base64 yerine gonderilecek URL'yi dondurur.
+// URL, gorselin gercek en-boyunu da tasir (?w=..&h=..).
 function storeImage(room, img) {
   if (!img) return '';
   if (img.url) return img.url;
   const id = nanoid(10);
   room.images.set(id, img);
-  return `/img/${room.code}/${id}`;
+  const size = imageSize(img.buf, img.mime);
+  const ok = size && size.w > 0 && size.h > 0 && size.w < 20000 && size.h < 20000;
+  return `/img/${room.code}/${id}` + (ok ? `?w=${size.w}&h=${size.h}` : '');
 }
 
 function createRoom(clean, ids = {}) {

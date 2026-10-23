@@ -186,7 +186,12 @@ label { font-weight: 700; font-size: 0.9rem; color: var(--text-dim); display:blo
   line-height: 1.35;
   margin: 0 0 14px;
 }
-.question-image { width: 100%; border-radius: 14px; margin-bottom: 14px; max-height: 220px; object-fit: cover; }
+/* Gorseller hic kirpilmaz: orijinal oran korunur, ekrana gore sinirlanir. */
+.question-image {
+  display: block; margin: 0 auto 14px;
+  width: auto; height: auto; max-width: 100%; max-height: 40vh;
+  object-fit: contain; border-radius: 14px;
+}
 
 .timer-ring {
   width: 56px; height: 56px;
@@ -404,7 +409,7 @@ body.sortable-dragging, .sortable-dragging * { cursor: grabbing; }
   font-size: 0.85rem;
 }
 .image-preview-wrap { position: relative; display: inline-block; margin-top: 8px; }
-.image-preview-wrap img { max-width: 100%; max-height: 160px; border-radius: 12px; display: block; }
+.image-preview-wrap img { width: auto; height: auto; max-width: 100%; max-height: 200px; object-fit: contain; border-radius: 12px; display: block; }
 .image-preview-remove {
   position: absolute; top: -8px; right: -8px;
   width: 28px; height: 28px; border-radius: 50%;
@@ -421,7 +426,11 @@ body.sortable-dragging, .sortable-dragging * { cursor: grabbing; }
 
 /* ---------- Sonuc fotografi ---------- */
 
-.result-photo { width: 100%; max-height: 260px; object-fit: cover; border-radius: var(--radius); margin-top: 12px; }
+.result-photo {
+  display: block; margin: 0 auto;
+  width: auto; height: auto; max-width: 100%; max-height: 50vh;
+  object-fit: contain; border-radius: var(--radius);
+}
 
 #confetti-layer { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 40; }
 .confetti-piece { position: absolute; top: -20px; border-radius: 2px; animation: fall linear forwards; }
@@ -483,7 +492,7 @@ body.sortable-dragging, .sortable-dragging * { cursor: grabbing; }
   color: var(--text-dim); font-size: 0.85rem; margin-top: 6px;
 }
 .photo-grid { display: flex; flex-wrap: wrap; gap: 12px; }
-.photo-grid .image-preview-wrap img { width: 96px; height: 96px; object-fit: cover; }
+.photo-grid .image-preview-wrap img { width: auto; height: auto; max-width: 120px; max-height: 120px; object-fit: contain; }
 .check-row { margin-top: 10px; gap: 8px; cursor: pointer; color: var(--text); }
 .check-row input { width: 20px; height: 20px; }
 .quiz-card .row { gap: 8px; }
