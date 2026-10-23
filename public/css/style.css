@@ -86,7 +86,6 @@ button:disabled {
 .btn-ghost:active { transform: none; }
 .btn-block { width: 100%; }
 .btn-lg { font-size: 1.2rem; padding: 18px 20px; }
-.btn-icon { font-size: 1.4em; margin-right: 6px; }
 
 /* ---------- Kartlar / girişler ---------- */
 

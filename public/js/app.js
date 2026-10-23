@@ -869,8 +869,8 @@
         <p class="muted">Sorular doğum günü çocuğu hakkında — doğru cevabı o anlık belirliyor!</p>
       </div>
       <div class="stack">
-        <button class="btn-primary btn-block btn-lg" id="go-admin"><span class="btn-icon">🛠️</span>Quiz Oluştur / Yönet</button>
-        <button class="btn-secondary btn-block btn-lg" id="go-join"><span class="btn-icon">🎮</span>Odaya Katıl</button>
+        <button class="btn-primary btn-block btn-lg" id="go-admin">Quiz Oluştur / Yönet</button>
+        <button class="btn-secondary btn-block btn-lg" id="go-join">Odaya Katıl</button>
       </div>
     `, 'home');
     on('go-admin', 'click', goAdminQuizList);
@@ -907,7 +907,7 @@
           <input type="text" id="join-name" maxlength="24" autocomplete="off" placeholder="Adını yaz">
         </div>
         ${joinError ? `<p class="error-text">${esc(joinError)}</p>` : ''}
-        <button class="btn-primary btn-block btn-lg" id="join-submit">Katıl 🚀</button>
+        <button class="btn-primary btn-block btn-lg" id="join-submit">Katıl</button>
         <button class="btn-ghost" id="join-back">← Ana sayfa</button>
       </div>
     `, 'playerJoin');
@@ -941,7 +941,7 @@
           <input type="text" id="bday-name" maxlength="30" autocomplete="off" placeholder="Adını yaz">
         </div>
         ${joinError ? `<p class="error-text">${esc(joinError)}</p>` : ''}
-        <button class="btn-primary btn-block btn-lg" id="bday-submit">Hazırım 🎉</button>
+        <button class="btn-primary btn-block btn-lg" id="bday-submit">Hazırım</button>
       </div>
     `, 'birthdayJoin');
     on('bday-submit', 'click', () => {
@@ -981,7 +981,7 @@
       <h2>Quiz'lerim</h2>
       <div class="row wrap">
         <button class="btn-primary" id="new-quiz" style="flex:1 1 160px">+ Yeni Quiz</button>
-        <label class="btn btn-secondary file-btn" style="flex:1 1 160px">⬆️ Quizi Yükle
+        <label class="btn btn-secondary file-btn" style="flex:1 1 160px">Quizi Yükle
           <input type="file" id="quiz-import-file" accept=".json,application/json" hidden>
         </label>
       </div>
@@ -995,8 +995,8 @@
             </div>
             <div class="row wrap">
               <button class="small-btn btn-secondary edit-quiz" data-id="${esc(q.id)}">Düzenle</button>
-              <button class="small-btn btn-success make-room" data-id="${esc(q.id)}">Oda Kur 🚪</button>
-              <button class="small-btn btn-secondary download-quiz" data-id="${esc(q.id)}">İndir ⬇️</button>
+              <button class="small-btn btn-success make-room" data-id="${esc(q.id)}">Oda Kur</button>
+              <button class="small-btn btn-secondary download-quiz" data-id="${esc(q.id)}">İndir</button>
               <button class="small-btn btn-danger del-quiz" data-id="${esc(q.id)}">Sil</button>
             </div>
           </div>
@@ -1043,7 +1043,7 @@
       startSession({ role: 'admin', code: data.code, token: data.adminToken });
     } catch (e) {
       showToast(e.message === 'Failed to fetch' ? 'Sunucuya ulaşılamadı, tekrar dene.' : e.message);
-      if (btn) { btn.disabled = false; btn.textContent = 'Oda Kur 🚪'; }
+      if (btn) { btn.disabled = false; btn.textContent = 'Oda Kur'; }
     } finally {
       busy = false;
     }
@@ -1153,8 +1153,8 @@
           ${editorQuiz.questions.map((q, qi) => renderQuestionEditor(q, qi, editorQuiz.questions.length)).join('')}
         </div>
         <button class="btn-secondary btn-block" id="add-question">+ Soru Ekle</button>
-        <button class="btn-primary btn-block" id="save-quiz">Kaydet ve Listeye Dön ✅</button>
-        <button class="btn-ghost btn-block" id="download-current">Quizi İndir (yedek) ⬇️</button>
+        <button class="btn-primary btn-block" id="save-quiz">Kaydet ve Listeye Dön</button>
+        <button class="btn-ghost btn-block" id="download-current">Quizi İndir (yedek)</button>
         <p class="muted center">Her değişiklik otomatik olarak bu cihaza kaydedilir. Doğru cevabı burada seçmiyorsun — oyun sırasında doğum günü çocuğu belirleyecek.</p>
       </div>
     `, 'editor-' + editorQuiz.id);
@@ -1591,7 +1591,7 @@
     const origin = location.origin;
     const playerLink = `${origin}/?code=${s.code}`;
     const birthdayLink = `${origin}/?code=${s.code}&role=birthday&token=${s.birthdayToken}`;
-    const afterQuestionLabel = isLastQuestion(s) ? 'Final Podyumunu Göster 🏆' : 'Sonraki Soru ➡️';
+    const afterQuestionLabel = isLastQuestion(s) ? 'Final Podyumunu Göster' : 'Sonraki Soru';
 
     let body = '';
     if (s.status === 'lobby') {
@@ -1622,7 +1622,7 @@
             ${s.players.map((p) => `<div class="participant"><span class="dot ${p.connected ? '' : 'off'}"></span>${esc(p.name)}</div>`).join('') || '<p class="muted">Henüz oyuncu yok.</p>'}
           </div>
         </div>
-        <button class="btn-success btn-block btn-lg" id="start-game" ${s.birthdayName ? '' : 'disabled'}>Oyunu Başlat 🚀</button>
+        <button class="btn-success btn-block btn-lg" id="start-game" ${s.birthdayName ? '' : 'disabled'}>Oyunu Başlat</button>
         ${!s.birthdayName ? '<p class="muted center">Başlatmak için doğum günü çocuğunun katılması gerekiyor.</p>' : ''}
         <button class="btn-ghost btn-block" id="cancel-room">Odayı İptal Et</button>
       `;
@@ -1668,7 +1668,7 @@
           <h3>Herkes kendi sonucunu görüyor</h3>
           <p>Cevaplayan: <strong>${s.answeredCount} / ${s.playerCount}</strong> · ${q.type === 'choice' ? 'Doğru bilen' : 'Tam isabet'}: <strong>${s.exactCount}</strong></p>
         </div>
-        ${nextButton('Doğru Cevabı Göster ➡️')}
+        ${nextButton('Doğru Cevabı Göster')}
         ${adminEndButton(s)}
       `;
     } else if (s.status === 'answer_reveal' && s.question) {
@@ -1677,7 +1677,7 @@
           ${questionHeader(s, s.question)}
           ${renderReveal(s.question)}
         </div>
-        ${nextButton(isLastQuestion(s) ? 'Final Podyumunu Göster 🏆' : 'İlk 5\'i Göster 🏆')}
+        ${nextButton(isLastQuestion(s) ? 'Final Podyumunu Göster' : 'İlk 5\'i Göster')}
         ${adminEndButton(s)}
       `;
     } else if (s.status === 'leaderboard') {
@@ -1697,7 +1697,7 @@
         </div>
         <h3>🏆 İlk 5</h3>
         ${renderLeaderboard(s.leaderboard)}
-        ${nextButton(isLastQuestion(s) ? 'Final Podyumunu Göster 🏆' : `${s.questionIndex + 2}. sorudan devam et ➡️`)}
+        ${nextButton(isLastQuestion(s) ? 'Final Podyumunu Göster' : `${s.questionIndex + 2}. sorudan devam et`)}
         ${adminEndButton(s)}
       `;
     } else if (s.status === 'podium') {
@@ -1705,12 +1705,12 @@
       body = `
         <div class="hero"><div class="emoji">🏆</div><h2>Kazananlar</h2></div>
         ${renderPodium(s.leaderboard)}
-        ${nextButton('Rozetleri Göster 🎖️')}
+        ${nextButton('Rozetleri Göster')}
       `;
     } else if (s.status === 'badges') {
       body = `
         ${renderBadges(s.badges)}
-        ${nextButton('Tüm Sıralamayı Göster ➡️')}
+        ${nextButton('Tüm Sıralamayı Göster')}
       `;
     } else if (s.status === 'finished') {
       body = `
@@ -1762,23 +1762,23 @@
       if (q.type === 'numeric') {
         answerUi = `
           <p class="muted">Doğru sayıyı yaz. Süre sınırsız.</p>
-          ${numericInputBox({ inputId: 'bday-numeric-input', btnId: 'bday-numeric-submit', unit: q.unit, placeholder: 'Doğru sayı', btnLabel: 'Kilitle 🔒' })}`;
+          ${numericInputBox({ inputId: 'bday-numeric-input', btnId: 'bday-numeric-submit', unit: q.unit, placeholder: 'Doğru sayı', btnLabel: 'Kilitle' })}`;
       } else if (q.type === 'ranking') {
         const order = getRankingOrder(qKey + '-bday', q.options);
         answerUi = `
           <p class="muted">Öğeleri doğru sıraya diz. Süre sınırsız.</p>
           <div id="bday-ranking">${renderRankingArranger(q.options, order)}</div>
-          <button type="button" class="btn-primary btn-block" id="bday-ranking-submit" style="margin-top:10px">Sıralamamı Kilitle 🔒</button>`;
+          <button type="button" class="btn-primary btn-block" id="bday-ranking-submit" style="margin-top:10px">Sıralamamı Kilitle</button>`;
       } else {
         const formOpen = customFormKey === qKey;
         answerUi = `
           <p class="muted">Doğru cevabı seç. Süre sınırsız.</p>
           <div class="options-grid" id="bday-options">${renderOptions(q.options)}</div>
           <div class="custom-answer-box">
-            <button type="button" class="custom-answer-toggle" id="custom-answer-toggle">Doğru cevap şıklarda yok, kendim yazayım ✏️</button>
+            <button type="button" class="custom-answer-toggle" id="custom-answer-toggle">Doğru cevap şıklarda yok, kendim yazayım</button>
             <div class="custom-answer-form" id="custom-answer-form" ${formOpen ? '' : 'hidden'}>
               <input type="text" id="custom-answer-text" maxlength="80" autocomplete="off" placeholder="Doğru cevabı yaz">
-              <button type="button" class="btn-primary" id="custom-answer-submit">Ekle ve Kilitle 🔒</button>
+              <button type="button" class="btn-primary" id="custom-answer-submit">Ekle ve Kilitle</button>
             </div>
           </div>`;
       }
@@ -1940,12 +1940,12 @@
       if (q.type === 'numeric') {
         answerUi = s.hasAnswered
           ? `<p class="answer-reveal">Tahminin: <strong>${esc(s.myValue)}${q.unit ? ' ' + esc(q.unit) : ''}</strong></p>`
-          : numericInputBox({ inputId: 'player-numeric-input', btnId: 'player-numeric-submit', unit: q.unit, placeholder: 'Tahminin', btnLabel: 'Gönder ✅' });
+          : numericInputBox({ inputId: 'player-numeric-input', btnId: 'player-numeric-submit', unit: q.unit, placeholder: 'Tahminin', btnLabel: 'Gönder' });
       } else if (q.type === 'ranking') {
         const order = s.hasAnswered && s.myOrder ? s.myOrder : getRankingOrder(qKey + '-player', q.options);
         answerUi = `
           <div id="player-ranking">${renderRankingArranger(q.options, order, { disabled: s.hasAnswered })}</div>
-          ${s.hasAnswered ? '' : '<button type="button" class="btn-primary btn-block" id="player-ranking-submit" style="margin-top:10px">Sıralamamı Gönder ✅</button>'}`;
+          ${s.hasAnswered ? '' : '<button type="button" class="btn-primary btn-block" id="player-ranking-submit" style="margin-top:10px">Sıralamamı Gönder</button>'}`;
       } else {
         answerUi = `<div class="options-grid" id="player-options">${renderOptions(q.options, { selected: s.myChoice, disabled: s.hasAnswered })}</div>`;
       }
