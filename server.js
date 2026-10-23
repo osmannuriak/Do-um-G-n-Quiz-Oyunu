@@ -178,6 +178,7 @@ function createRoom(clean, ids = {}) {
     players: new Map(),
     previousRanking: [],
     currentQuestion: null,
+    playedCount: 0, // puanlanmis soru sayisi
     createdAt: now,
     lastActivity: now,
     finishedAt: null,
@@ -215,6 +216,9 @@ function newPlayer(id, name) {
     score: 0, // 2 ondalik basamakli
     totalTimeMs: 0, // esitlikte siralama icin: cevap suresi toplami (cevapsiz soru = tam sure)
     correctCount: 0, answeredCount: 0, correctResponseMsSum: 0, lastResult: null,
+    firstRank: null, // ilk sorudan sonraki sirasi (Yukselen Yildiz)
+    uniqueSum: 0, uniqueCount: 0, // coktan secmelide azinlik secimi puani (Kendi Yolunda)
+    slowSum: 0, // cevaplanan sorularda t/T toplami (Acele Etmeyen)
   };
 }
 
@@ -254,42 +258,52 @@ function leaderboardPayload(room, limit) {
   });
 }
 
-// Final unvanlari: podyum (ilk 3) disinda eglenceli rozetler. Aday yoksa atlanir.
+// En yuksek (ya da en dusuk) degere sahip TUM oyunculari dondurur (esitlikte hepsi kazanir).
+function topBy(players, value, { lowest = false } = {}) {
+  let best = null;
+  let winners = [];
+  for (const p of players) {
+    const v = value(p);
+    if (v === null || !Number.isFinite(v)) continue;
+    const better = best === null || (lowest ? v < best - 1e-9 : v > best + 1e-9);
+    if (better) { best = v; winners = [p]; } else if (Math.abs(v - best) <= 1e-9) winners.push(p);
+  }
+  return { best, winners };
+}
+
+// Final unvanlari. Herkes (ilk 3 dahil) kazanabilir, bir kisi birden fazla rozet alabilir,
+// esitlikte rozet esit olanlarin hepsine verilir. Hak eden yoksa rozet gosterilmez.
 function computeBadges(room) {
   const badges = [];
   const ranked = rankedPlayers(room);
-  const totalQuestions = room.questions.length;
+  if (!ranked.length) return badges;
+  const add = (emoji, title, desc, winners) => {
+    if (winners.length) badges.push({ emoji, title, desc, names: winners.map((p) => p.name) });
+  };
 
-  // En Hizli Parmaklar: dogru/tam isabetli cevaplarinin ortalama suresi en kisa olan.
-  let fastest = null;
-  let fastestAvg = Infinity;
-  for (const p of ranked) {
-    if (p.correctCount > 0) {
-      const avg = p.correctResponseMsSum / p.correctCount;
-      if (avg < fastestAvg) {
-        fastestAvg = avg;
-        fastest = p;
-      }
-    }
-  }
-  if (fastest) badges.push({ emoji: '⚡', title: 'En Hızlı Parmaklar', name: fastest.name });
+  // Yukselen Yildiz: ilk sorudan sonraki sira - final sirasi (en cok tirmanan; en az 1 basamak).
+  const finalRank = new Map(ranked.map((p, i) => [p.id, i + 1]));
+  const rise = topBy(ranked, (p) => (p.firstRank == null ? null : p.firstRank - finalRank.get(p.id)));
+  if (rise.best > 0) add('🚀', 'Yükselen Yıldız', 'Oyun boyunca sıralamada en çok basamak tırmanan', rise.winners);
 
-  // Kahin Gozu: podyuma giremeyen (4. siradan asagisi) ama en cok dogru bilen.
-  if (ranked.length > 3) {
-    let kahin = null;
-    for (const p of ranked.slice(3)) {
-      if (p.correctCount > 0 && (!kahin || p.correctCount > kahin.correctCount)) kahin = p;
-    }
-    if (kahin) badges.push({ emoji: '🎯', title: 'Kahin Gözü', name: kahin.name });
-  }
+  // Kendi Yolunda: coktan secmelide, sectigi sikki secenlerin orani ne kadar dusukse o kadar puan.
+  const unique = topBy(ranked, (p) => (p.uniqueCount > 0 ? p.uniqueSum / p.uniqueCount : null));
+  if (unique.best > 0) add('🦄', 'Kendi Yolunda', 'Çoğunluğun seçmediği şıkları en çok işaretleyen', unique.winners);
 
-  // Pes Etmeyen: hicbir soruyu atlamadan sonuna kadar cevap veren ama en az puanli.
-  if (totalQuestions > 0) {
-    const finishers = ranked.filter((p) => p.answeredCount >= totalQuestions);
-    if (finishers.length > 0) {
-      badges.push({ emoji: '🐢', title: 'Pes Etmeyen', name: finishers[finishers.length - 1].name });
-    }
-  }
+  // Acele Etmeyen: cevaplanan sorularda t/T ortalamasi en yuksek; sorularin yarisindan azina
+  // cevap veren aday olamaz.
+  const played = Math.max(1, room.playedCount);
+  const slow = topBy(ranked, (p) => (p.answeredCount > 0 && p.answeredCount >= played / 2 ? p.slowSum / p.answeredCount : null));
+  add('🐢', 'Acele Etmeyen', 'Cevaplarını en uzun düşünerek veren', slow.winners);
+
+  // Kahin Gozu (onceki surumden): podyuma giremeyen ama en cok dogru / tam isabet yapan.
+  const kahin = topBy(ranked.slice(3), (p) => (p.correctCount > 0 ? p.correctCount : null));
+  add('🎯', 'Kahin Gözü', 'Podyuma giremeyen ama en çok doğru bilen', kahin.winners);
+
+  // Gonullerin Sampiyonu: sonuncu (puan ve toplam sure tamamen esitse hepsi).
+  const last = ranked[ranked.length - 1];
+  add('💖', 'Gönüllerin Şampiyonu', 'Sıralamada sonuncu olan',
+    ranked.filter((p) => p.score === last.score && p.totalTimeMs === last.totalTimeMs));
   return badges;
 }
 
@@ -305,11 +319,16 @@ function answerDistribution(room) {
 }
 
 // ---------------------------------------------------------------------------
-// Puanlama (2 ondalik basamak; sure sunucuda, soru acildigi andan ms hassasiyetle)
+// Puanlama (soru basina tam sayi; sure sunucuda, soru acildigi andan ms hassasiyetle)
 // ---------------------------------------------------------------------------
 
 function round2(x) {
   return Math.round(x * 100) / 100;
+}
+
+// Her sorudan alinan puan en yakin tam sayiya yuvarlanir (sure yine ms hassasiyetle olculur).
+function roundPoints(x) {
+  return Math.round(x);
 }
 
 // Siralamada ters sirali cift sayisi (Kendall tau mesafesi).
@@ -340,14 +359,14 @@ function scoreAnswer(cq, ans) {
   if (cq.type === 'choice') {
     const correct = ans.optionId === cq.birthdayOptionId;
     const points = correct ? 1000 * (1 - 0.5 * (t / T)) : 0;
-    return { exact: correct, points: round2(points * multiplier), extra: { optionId: ans.optionId } };
+    return { exact: correct, points: roundPoints(points * multiplier), extra: { optionId: ans.optionId } };
   }
   if (cq.type === 'numeric') {
     const correctValue = cq.birthdayValue;
     const diff = Math.abs(ans.value - correctValue);
     const accuracy = Math.max(0, 1 - diff / Math.max(Math.abs(correctValue), 1));
     const points = 1000 * accuracy * (0.75 + 0.25 * speed);
-    return { exact: diff === 0, points: round2(points * multiplier), extra: { value: ans.value, diff: round2(diff) } };
+    return { exact: diff === 0, points: roundPoints(points * multiplier), extra: { value: ans.value, diff: round2(diff) } };
   }
   // ranking
   const n = cq.birthdayOrder.length;
@@ -357,7 +376,7 @@ function scoreAnswer(cq, ans) {
   const points = 1000 * accuracy * (0.75 + 0.25 * speed);
   return {
     exact: wrongPairs === 0,
-    points: round2(points * multiplier),
+    points: roundPoints(points * multiplier),
     extra: { order: ans.order, misplaced: misplacedCount(cq.birthdayOrder, ans.order) },
   };
 }
@@ -503,6 +522,10 @@ function finalizeQuestion(room) {
   room.previousRanking = rankedPlayers(room).map((p) => p.id);
   const cq = room.currentQuestion;
   const durationMs = cq.duration * 1000;
+  // Kendi Yolunda icin: her sikki kac kisinin sectigi (bir kez hesaplanir).
+  const counts = cq.type === 'choice' ? answerDistribution(room) : null;
+  const distribution = counts ? new Map(cq.options.map((o, i) => [o.id, counts[i]])) : null;
+  const answeredTotal = cq.answers.size;
 
   for (const player of room.players.values()) {
     const ans = cq.answers.get(player.id);
@@ -512,9 +535,14 @@ function finalizeQuestion(room) {
     } else {
       const res = scoreAnswer(cq, ans);
       const elapsed = Math.min(durationMs, ans.elapsedMs);
-      player.score = round2(player.score + res.points);
+      player.score += res.points;
       player.totalTimeMs += elapsed;
       player.answeredCount += 1;
+      player.slowSum += elapsed / durationMs;
+      if (distribution && distribution.has(ans.optionId)) {
+        player.uniqueSum += 1 - distribution.get(ans.optionId) / answeredTotal;
+        player.uniqueCount += 1;
+      }
       if (res.exact) {
         player.correctCount += 1;
         player.correctResponseMsSum += elapsed;
@@ -524,6 +552,9 @@ function finalizeQuestion(room) {
     // "Dogru" gorseli sadece dogru / tam isabet yapana; esit olasilikla rastgele.
     player.lastResult.photoUrl = pickRandom(player.lastResult.won ? room.correctPhotos : room.wrongPhotos);
   }
+  room.playedCount += 1;
+  // Yukselen Yildiz icin: oyuncunun oynadigi ilk sorudan sonraki sirasi.
+  rankedPlayers(room).forEach((p, i) => { if (p.firstRank == null) p.firstRank = i + 1; });
   room.status = 'question_results';
   touch(room);
   syncRoom(room);
@@ -533,7 +564,11 @@ function finalizeQuestion(room) {
 function advance(room) {
   switch (room.status) {
     case 'question_results': room.status = 'answer_reveal'; break;
-    case 'answer_reveal': room.status = 'leaderboard'; break;
+    case 'answer_reveal':
+      // Son sorudan sonra ilk 5 gosterilmez (surpriz kacmasin): direkt podyum.
+      if (room.questionIndex + 1 >= room.questions.length) { showPodium(room); return; }
+      room.status = 'leaderboard';
+      break;
     case 'leaderboard':
     case 'paused':
       startQuestion(room);
@@ -619,9 +654,11 @@ function stateForAdmin(room) {
     .map((p) => ({
       id: p.id, name: p.name, connected: p.connected, score: p.score, totalTimeMs: p.totalTimeMs,
       correctCount: p.correctCount, answeredCount: p.answeredCount, correctResponseMsSum: p.correctResponseMsSum,
+      firstRank: p.firstRank, uniqueSum: p.uniqueSum, uniqueCount: p.uniqueCount, slowSum: p.slowSum,
     }))
     .sort((a, b) => a.name.localeCompare(b.name, 'tr'));
   state.answeredCount = room.currentQuestion ? room.currentQuestion.answers.size : 0;
+  state.playedCount = room.playedCount;
 
   const s = room.status;
   if (s === 'question_open') state.question = questionPayload(room, { timer: true });
@@ -789,11 +826,15 @@ function applySnapshot(room, snap) {
   for (const p of players) {
     if (!p || !p.id) continue;
     const player = newPlayer(String(p.id).slice(0, 20), cleanName(p.name, 24, 'Oyuncu'));
-    player.score = Math.round(num(p.score) * 100) / 100;
+    player.score = Math.round(num(p.score));
     player.totalTimeMs = num(p.totalTimeMs);
     player.correctCount = Math.round(num(p.correctCount));
     player.answeredCount = Math.round(num(p.answeredCount));
     player.correctResponseMsSum = num(p.correctResponseMsSum);
+    player.firstRank = Number.isInteger(p.firstRank) && p.firstRank > 0 ? p.firstRank : null;
+    player.uniqueSum = num(p.uniqueSum);
+    player.uniqueCount = Math.round(num(p.uniqueCount));
+    player.slowSum = num(p.slowSum);
     room.players.set(player.id, player);
   }
   const total = room.questions.length;
@@ -811,6 +852,7 @@ function applySnapshot(room, snap) {
     room.questionIndex = Math.max(-1, Math.min(lastDone, total - 1));
     room.status = 'paused';
   }
+  room.playedCount = Number.isInteger(snap.playedCount) ? Math.min(snap.playedCount, total) : Math.max(0, room.questionIndex + 1);
 }
 
 // Gorseller socket uzerinden base64 olarak degil, buradan URL ile (tarayici onbellegine

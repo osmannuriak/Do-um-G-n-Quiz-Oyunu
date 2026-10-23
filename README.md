@@ -55,7 +55,11 @@ telefonlardan katılmak için bilgisayarının yerel ağ IP'sini kullan (örn.
    3. Süre bitince ya da herkes cevaplayınca **otomatik** sonuç ekranı: doğru/yanlış
       görseli + o sorudan alınan puan + güncel sıralama.
    4. Yönetici → doğru cevap ekranı. 5. Yönetici → ilk 5. 6. Yönetici → sonraki soru.
-   Son sorudan sonra: podyum (ilk 3) → yönetici geçince tüm sıralama.
+   Son soruda ilk 5 gösterilmez (sürpriz kaçmasın): doğru cevap ekranından
+   direkt podyuma (ilk 3) geçilir → yönetici geçince tüm sıralama ve rozetler.
+
+   Rozetler (herkes kazanabilir, eşitlikte hepsine verilir): 🚀 Yükselen Yıldız,
+   🦄 Kendi Yolunda, 🐢 Acele Etmeyen, 🎯 Kahin Gözü, 💖 Gönüllerin Şampiyonu.
 
 ## 🌍 Herkesin telefonundan online oynanabilmesi için (deploy)
 
@@ -111,10 +115,11 @@ public/
 - Sayfa yenilenince oyuncu/doğum günü sahibi/yönetici kaldığı yerden devam
   eder (localStorage ile kimlik hatırlanır).
 
-## Puanlama (2 ondalık basamak)
+## Puanlama (soru başına tam sayı)
 
 Cevap süresi sunucuda, soru açıldığı andan milisaniye hassasiyetle ölçülür
-(t = cevap süresi, T = soru süresi). Toplam puan eşitse toplam cevap süresi
+(t = cevap süresi, T = soru süresi); her sorudan alınan puan en yakın tam
+sayıya yuvarlanır. Toplam puan eşitse toplam cevap süresi
 kısa olan üstte olur. Cevap vermeyen 0 puan alır; çift puanlı sorularda 2x.
 
 - **Çoktan seçmeli:** doğruysa `1000 × (1 − 0,5 × t/T)`, yanlışsa 0.

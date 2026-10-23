@@ -609,6 +609,7 @@
       birthdayToken: s.birthdayToken,
       status: s.status,
       questionIndex: s.questionIndex,
+      playedCount: s.playedCount,
       birthday: s.birthdayId ? { id: s.birthdayId, name: s.birthdayName } : null,
       players: s.players,
     });
@@ -1308,10 +1309,9 @@
 
   // ---------- ortak oyun bilesenleri ----------
 
-  // Puanlar 2 ondalik basamakla gosterilir (orn. 966,45)
+  // Puanlar tam sayi gosterilir (orn. 1.966)
   function fmtScore(n) {
-    const v = Number(n) || 0;
-    return v.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return Math.round(Number(n) || 0).toLocaleString('tr-TR');
   }
 
   function renderOptions(options, { selected = null, correctId = null, disabled = false } = {}) {
@@ -1491,8 +1491,11 @@
       <div class="badges-list">${badges.map((b) => `
         <div class="badge-row">
           <span class="badge-emoji">${b.emoji}</span>
-          <span class="badge-title">${esc(b.title)}</span>
-          <span class="badge-name">${esc(b.name)}</span>
+          <div class="badge-body">
+            <div class="badge-title">${esc(b.title)}</div>
+            <div class="badge-names">${(b.names || [b.name]).map((n) => `<span class="badge-name">${esc(n)}</span>`).join('')}</div>
+            ${b.desc ? `<div class="badge-desc">${esc(b.desc)}</div>` : ''}
+          </div>
         </div>`).join('')}</div>
     </div>`;
   }
@@ -1660,7 +1663,7 @@
           ${questionHeader(s, s.question)}
           ${renderReveal(s.question)}
         </div>
-        ${nextButton('İlk 5\'i Göster 🏆')}
+        ${nextButton(isLastQuestion(s) ? 'Final Podyumunu Göster 🏆' : 'İlk 5\'i Göster 🏆')}
         ${adminEndButton(s)}
       `;
     } else if (s.status === 'leaderboard') {
